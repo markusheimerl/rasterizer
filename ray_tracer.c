@@ -57,11 +57,8 @@ BVHNode *bvh_root = NULL;
 void compute_triangle_bbox(int tri_index, double bbox_min[3], double bbox_max[3]) {
     int *tri = triangles[tri_index];
     for (int i = 0; i < 3; i++) {
-        bbox_min[i] = bbox_max[i] = vertices[tri[0]][i];
-        if (vertices[tri[1]][i] < bbox_min[i]) bbox_min[i] = vertices[tri[1]][i];
-        if (vertices[tri[2]][i] < bbox_min[i]) bbox_min[i] = vertices[tri[2]][i];
-        if (vertices[tri[1]][i] > bbox_max[i]) bbox_max[i] = vertices[tri[1]][i];
-        if (vertices[tri[2]][i] > bbox_max[i]) bbox_max[i] = vertices[tri[2]][i];
+        bbox_min[i] = fmin(fmin(vertices[tri[0]][i], vertices[tri[1]][i]), vertices[tri[2]][i]);
+        bbox_max[i] = fmax(fmax(vertices[tri[0]][i], vertices[tri[1]][i]), vertices[tri[2]][i]);
     }
 }
 
@@ -77,6 +74,21 @@ void compute_bbox(int start, int end, double bbox_min[3], double bbox_max[3]) {
             if (tri_bbox_max[j] > bbox_max[j]) bbox_max[j] = tri_bbox_max[j];
         }
     }
+}
+
+// Struct for triangle centroid and index
+typedef struct {
+    double centroid;
+    int triangle_index;
+} CentroidTriangle;
+
+// Comparison function for qsort
+int compare_centroids(const void *a, const void *b) {
+    double c1 = ((CentroidTriangle*)a)->centroid;
+    double c2 = ((CentroidTriangle*)b)->centroid;
+    if (c1 < c2) return -1;
+    else if (c1 > c2) return 1;
+    else return 0;
 }
 
 // Function to build BVH recursively
@@ -101,40 +113,38 @@ BVHNode* build_bvh(int start, int end) {
         if (extent[1] > extent[0]) axis = 1;
         if (extent[2] > extent[axis]) axis = 2;
 
-        // Sort triangles based on centroid along axis
-        int mid = (start + end) / 2;
+        int num_tris = end - start;
+        CentroidTriangle *centroids = (CentroidTriangle*)malloc(num_tris * sizeof(CentroidTriangle));
+
         // Compute centroids
-        double *centroids = (double*)malloc((end - start) * sizeof(double));
-        for (int i = start; i < end; i++) {
-            int *tri = triangles[i];
-            double centroid = (vertices[tri[0]][axis] + vertices[tri[1]][axis] + vertices[tri[2]][axis]) / 3.0;
-            centroids[i - start] = centroid;
+        for (int i = 0; i < num_tris; i++) {
+            int tri_idx = start + i;
+            int *tri = triangles[tri_idx];
+            centroids[i].centroid = (vertices[tri[0]][axis] + vertices[tri[1]][axis] + vertices[tri[2]][axis]) / 3.0;
+            centroids[i].triangle_index = tri_idx;
         }
 
-        // Partition triangles
-        for (int i = start; i < end - 1; i++) {
-            for (int j = i + 1; j < end; j++) {
-                if (centroids[i - start] > centroids[j - start]) {
-                    // Swap centroids
-                    double temp_centroid = centroids[i - start];
-                    centroids[i - start] = centroids[j - start];
-                    centroids[j - start] = temp_centroid;
-                    // Swap triangles
-                    int temp_tri[3];
-                    temp_tri[0] = triangles[i][0];
-                    temp_tri[1] = triangles[i][1];
-                    temp_tri[2] = triangles[i][2];
-                    triangles[i][0] = triangles[j][0];
-                    triangles[i][1] = triangles[j][1];
-                    triangles[i][2] = triangles[j][2];
-                    triangles[j][0] = temp_tri[0];
-                    triangles[j][1] = temp_tri[1];
-                    triangles[j][2] = temp_tri[2];
-                }
-            }
+        // Sort triangles based on centroid along axis
+        qsort(centroids, num_tris, sizeof(CentroidTriangle), compare_centroids);
+
+        // Rearrange triangles according to sorted order
+        int (*temp_triangles)[3] = malloc(num_tris * sizeof(int[3]));
+        for (int i = 0; i < num_tris; i++) {
+            int idx = centroids[i].triangle_index;
+            temp_triangles[i][0] = triangles[idx][0];
+            temp_triangles[i][1] = triangles[idx][1];
+            temp_triangles[i][2] = triangles[idx][2];
         }
+        for (int i = 0; i < num_tris; i++) {
+            triangles[start + i][0] = temp_triangles[i][0];
+            triangles[start + i][1] = temp_triangles[i][1];
+            triangles[start + i][2] = temp_triangles[i][2];
+        }
+
+        free(temp_triangles);
         free(centroids);
 
+        int mid = (start + end) / 2;
         // Recursively build child nodes
         node->left = build_bvh(start, mid);
         node->right = build_bvh(mid, end);
@@ -193,58 +203,6 @@ int bvh_intersect(BVHNode *node, const double ro[3], const double rd[3],
     return hit;
 }
 
-// Function to parse OBJ file
-void parse_obj_file(const char *filename) {
-    FILE *file = fopen(filename, "r");
-    if (!file) {
-        fprintf(stderr, "Failed to open OBJ file %s\n", filename);
-        exit(1);
-    }
-
-    char line[256];
-    while (fgets(line, sizeof(line), file)) {
-        if (line[0] == 'v' && line[1] == ' ') {
-            // Vertex position
-            double x, y, z;
-            sscanf(line + 2, "%lf %lf %lf", &x, &y, &z);
-            if (num_vertices >= MAX_VERTICES) {
-                fprintf(stderr, "Exceeded maximum number of vertices\n");
-                exit(1);
-            }
-            vertices[num_vertices][0] = x;
-            vertices[num_vertices][1] = y;
-            vertices[num_vertices][2] = z;
-            num_vertices++;
-        } else if (line[0] == 'f' && line[1] == ' ') {
-            // Face
-            int vi[3];
-            int matches = sscanf(line + 2, "%d %d %d", &vi[0], &vi[1], &vi[2]);
-            if (matches != 3) {
-                // Try to parse format with slashes
-                matches = sscanf(line + 2, "%d/%*d/%*d %d/%*d/%*d %d/%*d/%*d", &vi[0], &vi[1], &vi[2]);
-                if (matches != 3) {
-                    matches = sscanf(line + 2, "%d//%*d %d//%*d %d//%*d", &vi[0], &vi[1], &vi[2]);
-                    if (matches != 3) {
-                        fprintf(stderr, "Failed to parse face: %s", line);
-                        continue;
-                    }
-                }
-            }
-            if (num_triangles >= MAX_TRIANGLES) {
-                fprintf(stderr, "Exceeded maximum number of triangles\n");
-                exit(1);
-            }
-            // OBJ indices start from 1
-            triangles[num_triangles][0] = vi[0] - 1;
-            triangles[num_triangles][1] = vi[1] - 1;
-            triangles[num_triangles][2] = vi[2] - 1;
-            num_triangles++;
-        }
-    }
-
-    fclose(file);
-}
-
 // Triangle intersection using Möller–Trumbore algorithm
 int triangle_intersect(const double v0[3], const double v1[3], const double v2[3],
                        const double ro[3], const double rd[3],
@@ -256,7 +214,7 @@ int triangle_intersect(const double v0[3], const double v1[3], const double v2[3
     VEC_SUB(v2, v0, edge2);
     VEC_CROSS(rd, edge2, h);
     a = VEC_DOT(edge1, h);
-    if (a > -EPSILON && a < EPSILON)
+    if (fabs(a) < EPSILON)
         return 0;    // Ray is parallel to triangle
     f = 1.0 / a;
     VEC_SUB(ro, v0, s);
@@ -329,6 +287,58 @@ void rotate_y(double angle, double point[3]) {
     double z = point[2];
     point[0] = c * x + s * z;
     point[2] = -s * x + c * z;
+}
+
+// Function to parse OBJ file
+void parse_obj_file(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        fprintf(stderr, "Failed to open OBJ file %s\n", filename);
+        exit(1);
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), file)) {
+        if (line[0] == 'v' && line[1] == ' ') {
+            // Vertex position
+            double x, y, z;
+            sscanf(line + 2, "%lf %lf %lf", &x, &y, &z);
+            if (num_vertices >= MAX_VERTICES) {
+                fprintf(stderr, "Exceeded maximum number of vertices\n");
+                exit(1);
+            }
+            vertices[num_vertices][0] = x;
+            vertices[num_vertices][1] = y;
+            vertices[num_vertices][2] = z;
+            num_vertices++;
+        } else if (line[0] == 'f' && line[1] == ' ') {
+            // Face
+            int vi[3];
+            int matches = sscanf(line + 2, "%d %d %d", &vi[0], &vi[1], &vi[2]);
+            if (matches != 3) {
+                // Try to parse format with slashes
+                matches = sscanf(line + 2, "%d/%*d/%*d %d/%*d/%*d %d/%*d/%*d", &vi[0], &vi[1], &vi[2]);
+                if (matches != 3) {
+                    matches = sscanf(line + 2, "%d//%*d %d//%*d %d//%*d", &vi[0], &vi[1], &vi[2]);
+                    if (matches != 3) {
+                        fprintf(stderr, "Failed to parse face: %s", line);
+                        continue;
+                    }
+                }
+            }
+            if (num_triangles >= MAX_TRIANGLES) {
+                fprintf(stderr, "Exceeded maximum number of triangles\n");
+                exit(1);
+            }
+            // OBJ indices start from 1
+            triangles[num_triangles][0] = vi[0] - 1;
+            triangles[num_triangles][1] = vi[1] - 1;
+            triangles[num_triangles][2] = vi[2] - 1;
+            num_triangles++;
+        }
+    }
+
+    fclose(file);
 }
 
 // Trace function
@@ -438,16 +448,16 @@ int main() {
     // Apply transformations to the mesh vertices
     double scale_factor = 0.8;
     double translation[3] = {4.0, -1.0, 10.0}; // Adjusted translation
-    double rotation_y = M_PI;      // Rotate 180 degrees around Y-axis
+    double rotation_y_angle = M_PI;      // Rotate 180 degrees around Y-axis
 
     for (int i = 0; i < num_vertices; i++) {
         // Scale
         vertices[i][0] *= scale_factor;
-        vertices[i][1] *= scale_factor;
+        vertices[i][1] *= -scale_factor; // Flip Y-axis to correct orientation
         vertices[i][2] *= scale_factor;
 
         // Rotate around Y-axis
-        rotate_y(rotation_y, vertices[i]);
+        rotate_y(rotation_y_angle, vertices[i]);
 
         // Translate
         vertices[i][0] += translation[0];
