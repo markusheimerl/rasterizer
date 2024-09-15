@@ -3,6 +3,10 @@
 #include <math.h>
 #include <string.h>
 
+// Include the stb_image_write header
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 // Constants
 #define WIDTH 640
 #define HEIGHT 480
@@ -230,16 +234,27 @@ int main() {
         }
     }
 
-    // Save the image as a PPM file
-    FILE *fp = fopen("result.ppm", "w");
-    fprintf(fp, "P3\n%d %d\n255\n", WIDTH, HEIGHT);
+    // Prepare image data for saving
+    unsigned char *output_image = (unsigned char *)malloc(WIDTH * HEIGHT * 3);
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
         int r = (int)(fmin(image[i * 3 + 0] / N_RAYS, 1.0) * 255);
         int g = (int)(fmin(image[i * 3 + 1] / N_RAYS, 1.0) * 255);
         int b = (int)(fmin(image[i * 3 + 2] / N_RAYS, 1.0) * 255);
-        fprintf(fp, "%d %d %d ", r, g, b);
+        output_image[i * 3 + 0] = (unsigned char)r;
+        output_image[i * 3 + 1] = (unsigned char)g;
+        output_image[i * 3 + 2] = (unsigned char)b;
     }
-    fclose(fp);
+
+    // Save the image using stb_image_write
+    if (stbi_write_png("result.png", WIDTH, HEIGHT, 3, output_image, WIDTH * 3)) {
+        printf("Image saved to 'result.png'\n");
+    } else {
+        fprintf(stderr, "Failed to save image\n");
+    }
+
+    // Clean up
     free(image);
+    free(output_image);
+
     return 0;
 }
