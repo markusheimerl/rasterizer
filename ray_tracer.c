@@ -3,7 +3,7 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
-
+// gcc -O3 -fopenmp ray_tracer.c -lm -lavformat -lavcodec -lavutil -lswscale -lswresample -lpthread
 // Include stb_image for image loading
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
