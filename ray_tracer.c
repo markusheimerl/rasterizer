@@ -14,6 +14,7 @@
 #define WIDTH 640
 #define HEIGHT 480
 #define N_RAYS 10
+#define N_FRAMES 60
 
 // Maximum counts
 #define MAX_VERTICES 100000
@@ -35,8 +36,13 @@
 // Random number between -1 and 1
 #define RAND_UNIFORM() (((double)rand() / RAND_MAX) * 2.0 - 1.0)
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // Global variables
 double vertices[MAX_VERTICES][3];
+double initial_vertices[MAX_VERTICES][3];
 double texcoords[MAX_TEXCOORDS][2];
 int triangles[MAX_TRIANGLES][3];
 int texcoord_indices[MAX_TRIANGLES][3];
@@ -66,6 +72,7 @@ void parse_obj_file(const char *filename) {
             double x, y, z;
             sscanf(line + 2, "%lf %lf %lf", &x, &y, &z);
             vertices[num_vertices][0] = x; vertices[num_vertices][1] = y; vertices[num_vertices][2] = z;
+            initial_vertices[num_vertices][0] = x; initial_vertices[num_vertices][1] = y; initial_vertices[num_vertices][2] = z;
             num_vertices++;
         } else if (strncmp(line, "vt ", 3) == 0) {
             double u, v;
@@ -257,56 +264,112 @@ void trace(const double ro[3], const double rd[3], double color_out[3]) {
     }
 }
 
+// Function to free BVH tree
+void free_bvh(BVHNode *node) {
+    if (!node) return;
+    free_bvh(node->left);
+    free_bvh(node->right);
+    free(node);
+}
+
 // Main function
 int main() {
     srand(42);
-    double eye[3] = {0, 0, 0}, focal = 500, azimuth = 0.0;
-    double *image = calloc(WIDTH * HEIGHT * 3, sizeof(double));
 
+    // Read the OBJ file
     parse_obj_file("african_head.obj");
 
+    // Load the texture
     texture_data = stbi_load("african_head_diffuse.tga", &texture_width, &texture_height, &texture_channels, 3);
     if (!texture_data) { fprintf(stderr, "Failed to load texture image\n"); return 1; }
 
-    // Transformations
+    // Allocate image buffers
+    double *image = calloc(WIDTH * HEIGHT * 3, sizeof(double));
+    unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
+
+    // Define constants
+    double eye[3] = {0, 0, 0};
+    double focal = 500;
     double scale_factor = 1.0;
     double translation[3] = {-1.0, 0.0, 4.0};
-    double rotation_y_angle = 3.14;
-    for (int i = 0; i < num_vertices; i++) {
-        vertices[i][0] *= scale_factor; vertices[i][1] *= -scale_factor; vertices[i][2] *= scale_factor;
-        rotate_y(rotation_y_angle, vertices[i]);
-        vertices[i][0] += translation[0]; vertices[i][1] += translation[1]; vertices[i][2] += translation[2];
-    }
+    double initial_rotation = 0.0;
+    double angle_per_frame = (2.0 * M_PI) / N_FRAMES;
 
-    bvh_root = build_bvh(0, num_triangles);
+    for (int frame = 0; frame < N_FRAMES; frame++) {
+        printf("Rendering frame %d/%d\n", frame + 1, N_FRAMES);
 
-    for (int r = 0; r < N_RAYS; r++) {
-        printf("Pass %d/%d\n", r + 1, N_RAYS);
-        for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < WIDTH; x++) {
-                double x_screen = x - WIDTH / 2 + RAND_UNIFORM();
-                double y_screen = y - HEIGHT / 2 + RAND_UNIFORM();
-                double dir[3] = { x_screen, y_screen, focal };
-                VEC_NORM(dir);
-                double color[3];
-                trace(eye, dir, color);
-                int idx = (y * WIDTH + x) * 3;
-                image[idx] += color[0];
-                image[idx + 1] += color[1];
-                image[idx + 2] += color[2];
+        // Copy initial_vertices to vertices
+        for (int i = 0; i < num_vertices; i++) {
+            vertices[i][0] = initial_vertices[i][0];
+            vertices[i][1] = initial_vertices[i][1];
+            vertices[i][2] = initial_vertices[i][2];
+        }
+
+        // Apply transformations
+        double rotation_y_angle = initial_rotation + frame * angle_per_frame;
+        for (int i = 0; i < num_vertices; i++) {
+            vertices[i][0] *= scale_factor;
+            vertices[i][1] *= -scale_factor;
+            vertices[i][2] *= scale_factor;
+
+            rotate_y(rotation_y_angle, vertices[i]);
+
+            vertices[i][0] += translation[0];
+            vertices[i][1] += translation[1];
+            vertices[i][2] += translation[2];
+        }
+
+        // Build BVH
+        bvh_root = build_bvh(0, num_triangles);
+
+        // Initialize image buffer
+        memset(image, 0, WIDTH * HEIGHT * 3 * sizeof(double));
+
+        for (int r = 0; r < N_RAYS; r++) {
+            printf("Pass %d/%d\n", r + 1, N_RAYS);
+            for (int y = 0; y < HEIGHT; y++) {
+                for (int x = 0; x < WIDTH; x++) {
+                    double x_screen = x - WIDTH / 2 + RAND_UNIFORM();
+                    double y_screen = y - HEIGHT / 2 + RAND_UNIFORM();
+                    double dir[3] = { x_screen, y_screen, focal };
+                    VEC_NORM(dir);
+                    double color[3];
+                    trace(eye, dir, color);
+                    int idx = (y * WIDTH + x) * 3;
+                    image[idx] += color[0];
+                    image[idx + 1] += color[1];
+                    image[idx + 2] += color[2];
+                }
             }
         }
+
+        // Prepare and save image
+        for (int i = 0; i < WIDTH * HEIGHT * 3; i++)
+            output_image[i] = (unsigned char)(fmin(image[i] / N_RAYS, 1.0) * 255);
+
+        char filename[256];
+        sprintf(filename, "frame_%03d.png", frame);
+
+        if (stbi_write_png(filename, WIDTH, HEIGHT, 3, output_image, WIDTH * 3))
+            printf("Image saved to '%s'\n", filename);
+        else
+            fprintf(stderr, "Failed to save image '%s'\n", filename);
+
+        // Free BVH
+        free_bvh(bvh_root);
+        bvh_root = NULL;
     }
 
-    // Prepare and save image
-    unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
-    for (int i = 0; i < WIDTH * HEIGHT * 3; i++)
-        output_image[i] = (unsigned char)(fmin(image[i] / N_RAYS, 1.0) * 255);
-    if (stbi_write_png("result.png", WIDTH, HEIGHT, 3, output_image, WIDTH * 3))
-        printf("Image saved to 'result.png'\n");
-    else
-        fprintf(stderr, "Failed to save image\n");
+    // Free resources
+    free(image);
+    free(output_image);
+    stbi_image_free(texture_data);
 
-    free(image); free(output_image); stbi_image_free(texture_data);
+    // Generate video using ffmpeg
+    printf("Generating video 'output.mp4' using ffmpeg...\n");
+    system("ffmpeg -y -framerate 30 -i frame_%03d.png -c:v libx264 -pix_fmt yuv420p output.mp4");
+
+    printf("Video saved to 'output.mp4'\n");
+
     return 0;
 }
