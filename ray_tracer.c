@@ -4,11 +4,15 @@
 #include <float.h>
 #include <string.h>
 
-// Include stb_image and stb_image_write for image loading and saving
+// Include stb_image for image loading
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+
+// Include FFmpeg headers
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
 
 // Constants
 #define WIDTH 640
@@ -287,6 +291,104 @@ int main() {
     double *image = calloc(WIDTH * HEIGHT * 3, sizeof(double));
     unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
 
+    // Initialize FFmpeg
+    avformat_network_init();
+
+    // Set up FFmpeg encoding
+    AVFormatContext *oc = NULL;
+    AVOutputFormat *fmt = NULL;
+    AVStream *video_st = NULL;
+    AVCodecContext *c = NULL;
+    AVCodec *codec = NULL;
+
+    // Allocate the output media context
+    avformat_alloc_output_context2(&oc, NULL, NULL, "output.mp4");
+    if (!oc) {
+        fprintf(stderr, "Could not deduce output format from file extension.\n");
+        exit(1);
+    }
+    fmt = oc->oformat;
+
+    // Add the video stream using the default format codecs and initialize the codec
+    codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if (!codec) {
+        fprintf(stderr, "Codec not found\n");
+        exit(1);
+    }
+
+    video_st = avformat_new_stream(oc, NULL);
+    if (!video_st) {
+        fprintf(stderr, "Could not allocate stream\n");
+        exit(1);
+    }
+
+    c = avcodec_alloc_context3(codec);
+    if (!c) {
+        fprintf(stderr, "Could not allocate video codec context\n");
+        exit(1);
+    }
+
+    // Set codec parameters
+    c->codec_id = AV_CODEC_ID_H264;
+    c->bit_rate = 400000;
+    c->width = WIDTH;
+    c->height = HEIGHT;
+    video_st->time_base = (AVRational){1, 30};
+    c->time_base = video_st->time_base;
+    c->gop_size = 10;
+    c->max_b_frames = 1;
+    c->pix_fmt = AV_PIX_FMT_YUV420P;
+
+    if (oc->oformat->flags & AVFMT_GLOBALHEADER)
+        c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    // Open the codec
+    if (avcodec_open2(c, codec, NULL) < 0) {
+        fprintf(stderr, "Could not open codec\n");
+        exit(1);
+    }
+
+    // Copy the stream parameters to the muxer
+    if (avcodec_parameters_from_context(video_st->codecpar, c) < 0) {
+        fprintf(stderr, "Could not copy the stream parameters\n");
+        exit(1);
+    }
+
+    // Open the output file
+    if (!(fmt->flags & AVFMT_NOFILE)) {
+        if (avio_open(&oc->pb, "output.mp4", AVIO_FLAG_WRITE) < 0) {
+            fprintf(stderr, "Could not open 'output.mp4'\n");
+            exit(1);
+        }
+    }
+
+    // Write the stream header
+    if (avformat_write_header(oc, NULL) < 0) {
+        fprintf(stderr, "Error occurred when opening output file\n");
+        exit(1);
+    }
+
+    // For image conversion
+    struct SwsContext *sws_ctx = sws_getContext(
+        WIDTH, HEIGHT, AV_PIX_FMT_RGB24,
+        WIDTH, HEIGHT, AV_PIX_FMT_YUV420P,
+        SWS_BILINEAR, NULL, NULL, NULL
+    );
+
+    AVFrame *frame = av_frame_alloc();
+    frame->format = c->pix_fmt;
+    frame->width = c->width;
+    frame->height = c->height;
+
+    // Allocate the buffers for the frame data
+    if (av_image_alloc(frame->data, frame->linesize, c->width, c->height, c->pix_fmt, 32) < 0) {
+        fprintf(stderr, "Could not allocate raw picture buffer\n");
+        exit(1);
+    }
+
+    AVPacket pkt;
+    int frame_count = 0;
+
     // Define constants
     double eye[3] = {0, 0, 0};
     double focal = 500;
@@ -295,8 +397,8 @@ int main() {
     double initial_rotation = 0.0;
     double angle_per_frame = (2.0 * M_PI) / N_FRAMES;
 
-    for (int frame = 0; frame < N_FRAMES; frame++) {
-        printf("Rendering frame %d/%d\n", frame + 1, N_FRAMES);
+    for (int frame_num = 0; frame_num < N_FRAMES; frame_num++) {
+        printf("Rendering frame %d/%d\n", frame_num + 1, N_FRAMES);
 
         // Copy initial_vertices to vertices
         for (int i = 0; i < num_vertices; i++) {
@@ -306,7 +408,7 @@ int main() {
         }
 
         // Apply transformations
-        double rotation_y_angle = initial_rotation + frame * angle_per_frame;
+        double rotation_y_angle = initial_rotation + frame_num * angle_per_frame;
         for (int i = 0; i < num_vertices; i++) {
             vertices[i][0] *= scale_factor;
             vertices[i][1] *= -scale_factor;
@@ -343,31 +445,86 @@ int main() {
             }
         }
 
-        // Prepare and save image
-        for (int i = 0; i < WIDTH * HEIGHT * 3; i++)
-            output_image[i] = (unsigned char)(fmin(image[i] / N_RAYS, 1.0) * 255);
+        // Prepare frame data
+        for (int y = 0; y < HEIGHT; y++) {
+            for (int x = 0; x < WIDTH; x++) {
+                int idx = (y * WIDTH + x) * 3;
+                output_image[idx] = (unsigned char)(fmin(image[idx] / N_RAYS, 1.0) * 255);
+                output_image[idx + 1] = (unsigned char)(fmin(image[idx + 1] / N_RAYS, 1.0) * 255);
+                output_image[idx + 2] = (unsigned char)(fmin(image[idx + 2] / N_RAYS, 1.0) * 255);
+            }
+        }
 
-        char filename[256];
-        sprintf(filename, "frame_%03d.png", frame);
+        // Convert RGB to YUV and encode
+        const uint8_t *inData[1] = { output_image };
+        int inLinesize[1] = { 3 * WIDTH };
+        sws_scale(sws_ctx, inData, inLinesize, 0, HEIGHT, frame->data, frame->linesize);
 
-        if (stbi_write_png(filename, WIDTH, HEIGHT, 3, output_image, WIDTH * 3))
-            printf("Image saved to '%s'\n", filename);
-        else
-            fprintf(stderr, "Failed to save image '%s'\n", filename);
+        frame->pts = frame_count++;
+
+        // Encode the frame
+        av_init_packet(&pkt);
+        pkt.data = NULL;
+        pkt.size = 0;
+
+        int ret = avcodec_send_frame(c, frame);
+        if (ret < 0) {
+            fprintf(stderr, "Error sending a frame for encoding\n");
+            exit(1);
+        }
+
+        while (ret >= 0) {
+            ret = avcodec_receive_packet(c, &pkt);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+                break;
+            else if (ret < 0) {
+                fprintf(stderr, "Error during encoding\n");
+                exit(1);
+            }
+
+            // Rescale output packet timestamp values from codec to stream timebase
+            av_packet_rescale_ts(&pkt, c->time_base, video_st->time_base);
+            pkt.stream_index = video_st->index;
+
+            // Write the compressed frame to the media file
+            ret = av_interleaved_write_frame(oc, &pkt);
+            if (ret < 0) {
+                fprintf(stderr, "Error while writing output packet\n");
+                exit(1);
+            }
+            av_packet_unref(&pkt);
+        }
 
         // Free BVH
         free_bvh(bvh_root);
         bvh_root = NULL;
     }
 
+    // Flush the encoder
+    avcodec_send_frame(c, NULL);
+    while (avcodec_receive_packet(c, &pkt) == 0) {
+        av_packet_rescale_ts(&pkt, c->time_base, video_st->time_base);
+        pkt.stream_index = video_st->index;
+        av_interleaved_write_frame(oc, &pkt);
+        av_packet_unref(&pkt);
+    }
+
+    // Write the trailer
+    av_write_trailer(oc);
+
+    // Clean up
+    avcodec_close(c);
+    avcodec_free_context(&c);
+    av_frame_free(&frame);
+    sws_freeContext(sws_ctx);
+    if (!(fmt->flags & AVFMT_NOFILE))
+        avio_closep(&oc->pb);
+    avformat_free_context(oc);
+
     // Free resources
     free(image);
     free(output_image);
     stbi_image_free(texture_data);
-
-    // Generate video using ffmpeg
-    printf("Generating video 'output.mp4' using ffmpeg...\n");
-    system("ffmpeg -y -framerate 30 -i frame_%03d.png -c:v libx264 -pix_fmt yuv420p output.mp4");
 
     printf("Video saved to 'output.mp4'\n");
 
