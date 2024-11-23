@@ -2,6 +2,9 @@
 A wasm uav simulator
 ![result (1)](https://github.com/user-attachments/assets/b510d469-31b7-4f84-bbca-a2ed5a686356)
 
+sudo apt update
+sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev
+
 
 drone - simulation
 rasterizer enables realtime rendering
