@@ -5,7 +5,7 @@
 #include <string.h>
 
 // gcc -O3 -fopenmp rasterizer.c -lm -lavformat -lavcodec -lavutil -lswscale -lswresample -lpthread
-// still pitch black...
+
 // Include stb_image for image loading
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -94,6 +94,8 @@ void parse_obj_file(const char *filename) {
         }
     }
     fclose(file);
+    printf("Loaded: %d vertices, %d texcoords, %d triangles\n", 
+           num_vertices, num_texcoords, num_triangles);
 }
 
 // Matrix operations
@@ -135,10 +137,14 @@ void barycentric(int x, int y, double *v0, double *v1, double *v2, double *coord
     double v1x = v1[0], v1y = v1[1];
     double v2x = v2[0], v2y = v2[1];
     
-    coords[0] = ((v1y - v2y) * (x - v2x) + (v2x - v1x) * (y - v2y)) /
-                ((v1y - v2y) * (v0x - v2x) + (v2x - v1x) * (v0y - v2y));
-    coords[1] = ((v2y - v0y) * (x - v2x) + (v0x - v2x) * (y - v2y)) /
-                ((v1y - v2y) * (v0x - v2x) + (v2x - v1x) * (v0y - v2y));
+    double denom = ((v1y - v2y) * (v0x - v2x) + (v2x - v1x) * (v0y - v2y));
+    if (fabs(denom) < 1e-10) {
+        coords[0] = coords[1] = coords[2] = -1;
+        return;
+    }
+    
+    coords[0] = ((v1y - v2y) * (x - v2x) + (v2x - v1x) * (y - v2y)) / denom;
+    coords[1] = ((v2y - v0y) * (x - v2x) + (v0x - v2x) * (y - v2y)) / denom;
     coords[2] = 1 - coords[0] - coords[1];
 }
 
@@ -161,10 +167,10 @@ void draw_triangle(double *v0, double *v1, double *v2,
     VEC_CROSS(edge1, edge2, normal);
     VEC_NORM(normal);
     
-    // Simple directional light from above-right
-    double light_dir[3] = {0.5, 0.5, 1};
+    // Simple directional light from front
+    double light_dir[3] = {0, 0, 1};
     VEC_NORM(light_dir);
-    double light_intensity = fmax(0.2, VEC_DOT(normal, light_dir)); // Ambient + diffuse
+    double light_intensity = fmax(0.4, VEC_DOT(normal, light_dir)) * 2.0; // Increased brightness
 
     // Compute bounding box
     int minX = (int)fmax(0, fmin(fmin(v0[0], v1[0]), v2[0]));
@@ -199,10 +205,10 @@ void draw_triangle(double *v0, double *v1, double *v2,
                     int tidx = (ty * texture_width + tx) * texture_channels;
                     int iidx = (y * WIDTH + x) * 3;
                     
-                    // Apply lighting
-                    image[iidx] = (unsigned char)(texture_data[tidx] * light_intensity);
-                    image[iidx+1] = (unsigned char)(texture_data[tidx+1] * light_intensity);
-                    image[iidx+2] = (unsigned char)(texture_data[tidx+2] * light_intensity);
+                    // Apply lighting with increased brightness
+                    image[iidx] = (unsigned char)fmin(255, texture_data[tidx] * light_intensity);
+                    image[iidx+1] = (unsigned char)fmin(255, texture_data[tidx+1] * light_intensity);
+                    image[iidx+2] = (unsigned char)fmin(255, texture_data[tidx+2] * light_intensity);
                 }
             }
         }
@@ -219,6 +225,7 @@ int main() {
         fprintf(stderr, "Failed to load texture image\n");
         return 1;
     }
+    printf("Loaded texture: %dx%d with %d channels\n", texture_width, texture_height, texture_channels);
 
     // Allocate buffers
     zbuffer = malloc(WIDTH * HEIGHT * sizeof(double));
@@ -326,7 +333,7 @@ int main() {
     
     // Projection matrices
     double projection[4][4];
-    perspective_matrix(45.0, (double)WIDTH/HEIGHT, 0.1, 100.0, projection);
+    perspective_matrix(60.0, (double)WIDTH/HEIGHT, 0.1, 50.0, projection);
     
     double viewport[4][4];
     viewport_transform(0, 0, WIDTH, HEIGHT, 255, viewport);
@@ -337,8 +344,10 @@ int main() {
         // Clear buffers
         for (int i = 0; i < WIDTH * HEIGHT; i++) {
             zbuffer[i] = INFINITY;
+            output_image[i*3] = 128;     // Light gray background
+            output_image[i*3+1] = 128;
+            output_image[i*3+2] = 128;
         }
-        memset(output_image, 0, WIDTH * HEIGHT * 3);
 
         // Transform vertices
         double rotation_y_angle = frame_num * angle_per_frame;
@@ -349,17 +358,17 @@ int main() {
             
             // Get vertices
             for (int j = 0; j < 3; j++) {
-                v0[j] = vertices[triangles[i][0]][j];
-                v1[j] = vertices[triangles[i][1]][j];
-                v2[j] = vertices[triangles[i][2]][j];
+                v0[j] = initial_vertices[triangles[i][0]][j];
+                v1[j] = initial_vertices[triangles[i][1]][j];
+                v2[j] = initial_vertices[triangles[i][2]][j];
             }
             v0[3] = v1[3] = v2[3] = 1.0;
 
             // Scale the model
             for (int j = 0; j < 3; j++) {
-                v0[j] *= 2.0;
-                v1[j] *= 2.0;
-                v2[j] *= 2.0;
+                v0[j] *= 1.5;
+                v1[j] *= 1.5;
+                v2[j] *= 1.5;
             }
 
             // Apply transformations
@@ -368,7 +377,7 @@ int main() {
             rotate_y(rotation_y_angle, v2);
 
             // Translate away from camera
-            v0[2] += 5.0; v1[2] += 5.0; v2[2] += 5.0;
+            v0[2] += 3.0; v1[2] += 3.0; v2[2] += 3.0;
 
             // Apply projection
             matrix_multiply(projection, v0, p0);
