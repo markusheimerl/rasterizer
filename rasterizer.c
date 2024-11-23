@@ -1,368 +1,466 @@
-// rasterizer.c
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
 #include <math.h>
+#include <float.h>
+#include <string.h>
+
+// gcc -O3 -fopenmp rasterizer.c -lm -lavformat -lavcodec -lavutil -lswscale -lswresample -lpthread
+// still pitch black...
+// Include stb_image for image loading
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+// Include FFmpeg headers
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
 
 // Constants
 #define WIDTH 640
 #define HEIGHT 480
+#define N_FRAMES 60
+
+// Maximum counts
 #define MAX_VERTICES 100000
 #define MAX_TEXCOORDS 100000
-#define MAX_FACES 200000
-#define NUM_FRAMES 60
+#define MAX_TRIANGLES 200000
 
-// Data structures
-typedef struct {
-    float x, y, z;
-} Vec3;
+// Vector macros
+#define VEC_SUB(a,b,r) { (r)[0]=(a)[0]-(b)[0]; (r)[1]=(a)[1]-(b)[1]; (r)[2]=(a)[2]-(b)[2]; }
+#define VEC_DOT(a,b) ((a)[0]*(b)[0]+(a)[1]*(b)[1]+(a)[2]*(b)[2])
+#define VEC_CROSS(a,b,r) { \
+    (r)[0]=(a)[1]*(b)[2]-(a)[2]*(b)[1]; \
+    (r)[1]=(a)[2]*(b)[0]-(a)[0]*(b)[2]; \
+    (r)[2]=(a)[0]*(b)[1]-(a)[1]*(b)[0]; \
+}
+#define VEC_NORM(v) { double l=sqrt(VEC_DOT(v,v)); if(l>0){ (v)[0]/=l; (v)[1]/=l; (v)[2]/=l; } }
+#define VEC_SCALE(v,s,r) { (r)[0]=(v)[0]*(s); (r)[1]=(v)[1]*(s); (r)[2]=(v)[2]*(s); }
+#define VEC_ADD(a,b,r) { (r)[0]=(a)[0]+(b)[0]; (r)[1]=(a)[1]+(b)[1]; (r)[2]=(a)[2]+(b)[2]; }
 
-typedef struct {
-    float u, v;
-} Vec2;
-
-typedef struct {
-    int v_idx[3];  // Vertex indices
-    int vt_idx[3]; // Texture coordinate indices
-} Face;
-
-typedef struct {
-    uint8_t* data;
-    int width;
-    int height;
-    int channels;
-} Image;
-
-typedef struct {
-    uint8_t r, g, b;
-} Color;
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 // Global variables
-Vec3 vertices[MAX_VERTICES];
-Vec2 texcoords[MAX_TEXCOORDS];
-Face faces[MAX_FACES];
-int num_vertices = 0;
-int num_texcoords = 0;
-int num_faces = 0;
+double vertices[MAX_VERTICES][3];
+double initial_vertices[MAX_VERTICES][3];
+double texcoords[MAX_TEXCOORDS][2];
+int triangles[MAX_TRIANGLES][3];
+int texcoord_indices[MAX_TRIANGLES][3];
+int num_vertices = 0, num_texcoords = 0, num_triangles = 0;
 
-Image texture;
+// Z-buffer
+double *zbuffer;
 
-Color framebuffer[WIDTH * HEIGHT];
-float zbuffer[WIDTH * HEIGHT];
+// Texture data
+unsigned char *texture_data = NULL;
+int texture_width, texture_height, texture_channels;
 
-// Function prototypes
-void load_obj(const char* filename);
-void load_tga(const char* filename, Image* image);
-void matrix_identity(float mat[4][4]);
-void matrix_multiply(float result[4][4], float a[4][4], float b[4][4]);
-Vec3 matrix_transform(Vec3 v, float mat[4][4]);
-void matrix_scale(float mat[4][4], float sx, float sy, float sz);
-void matrix_rotate_y(float mat[4][4], float angle);
-void matrix_translate(float mat[4][4], float tx, float ty, float tz);
-void matrix_perspective(float mat[4][4], float fov, float aspect, float near, float far);
-void clear_buffers();
-void put_pixel(int x, int y, float z, Color color);
-void draw_triangle(Vec3 v0, Vec3 v1, Vec3 v2, Vec2 uv0, Vec2 uv1, Vec2 uv2);
-void save_framebuffer(const char* filename);
+// Function to parse OBJ file
+void parse_obj_file(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file) { fprintf(stderr, "Failed to open OBJ file %s\n", filename); exit(1); }
 
-int main() {
-    load_obj("african_head.obj");
-    load_tga("african_head_diffuse.tga", &texture);
-
-    // Transformation matrices
-    float model[4][4], view[4][4], projection[4][4], mvp[4][4];
-    float temp[4][4];
-
-    // Set up projection matrix
-    float aspect = (float)WIDTH / (float)HEIGHT;
-    matrix_perspective(projection, M_PI / 3.0f, aspect, 0.1f, 100.0f);
-
-    // Set up view matrix (camera)
-    matrix_identity(view);
-    // Simple camera at (0, 0, 3)
-    view[3][2] = -3.0f;
-
-    // For each frame
-    for (int frame = 0; frame < NUM_FRAMES; frame++) {
-        clear_buffers();
-
-        // Model transformations
-        float angle = frame * (2 * M_PI / NUM_FRAMES);
-        float rotation[4][4], translation[4][4], scale[4][4];
-
-        matrix_rotate_y(rotation, angle);
-        matrix_translate(translation, 0.0f, 0.0f, 0.0f);
-        matrix_scale(scale, 1.0f, 1.0f, 1.0f);
-
-        // Combine transformations: model = translation * rotation * scale
-        matrix_multiply(temp, rotation, scale);
-        matrix_multiply(model, translation, temp);
-
-        // Compute MVP matrix: mvp = projection * view * model
-        matrix_multiply(temp, view, model);
-        matrix_multiply(mvp, projection, temp);
-
-        // Render each face
-        for (int i = 0; i < num_faces; i++) {
-            Face* face = &faces[i];
-
-            Vec3 v0 = vertices[face->v_idx[0]];
-            Vec3 v1 = vertices[face->v_idx[1]];
-            Vec3 v2 = vertices[face->v_idx[2]];
-
-            Vec2 uv0 = texcoords[face->vt_idx[0]];
-            Vec2 uv1 = texcoords[face->vt_idx[1]];
-            Vec2 uv2 = texcoords[face->vt_idx[2]];
-
-            // Transform vertices
-            v0 = matrix_transform(v0, mvp);
-            v1 = matrix_transform(v1, mvp);
-            v2 = matrix_transform(v2, mvp);
-
-            // Perspective division and viewport transformation
-            v0.x = (v0.x + 1.0f) * 0.5f * WIDTH;
-            v0.y = (1.0f - v0.y) * 0.5f * HEIGHT;
-            v1.x = (v1.x + 1.0f) * 0.5f * WIDTH;
-            v1.y = (1.0f - v1.y) * 0.5f * HEIGHT;
-            v2.x = (v2.x + 1.0f) * 0.5f * WIDTH;
-            v2.y = (1.0f - v2.y) * 0.5f * HEIGHT;
-
-            // Draw the triangle
-            draw_triangle(v0, v1, v2, uv0, uv1, uv2);
-        }
-
-        // Save the framebuffer as an image
-        char filename[64];
-        sprintf(filename, "frame_%03d.ppm", frame);
-        save_framebuffer(filename);
-        printf("Saved %s\n", filename);
-    }
-
-    // Free resources
-    free(texture.data);
-
-    return 0;
-}
-
-// Function implementations
-
-void load_obj(const char* filename) {
-    FILE* file = fopen(filename, "r");
-    if (!file) {
-        fprintf(stderr, "Failed to open OBJ file: %s\n", filename);
-        exit(1);
-    }
     char line[256];
     while (fgets(line, sizeof(line), file)) {
         if (strncmp(line, "v ", 2) == 0) {
-            Vec3 v;
-            sscanf(line + 2, "%f %f %f", &v.x, &v.y, &v.z);
-            vertices[num_vertices++] = v;
+            double x, y, z;
+            sscanf(line + 2, "%lf %lf %lf", &x, &y, &z);
+            vertices[num_vertices][0] = x;
+            vertices[num_vertices][1] = y;
+            vertices[num_vertices][2] = z;
+            initial_vertices[num_vertices][0] = x;
+            initial_vertices[num_vertices][1] = y;
+            initial_vertices[num_vertices][2] = z;
+            num_vertices++;
         } else if (strncmp(line, "vt ", 3) == 0) {
-            Vec2 vt;
-            sscanf(line + 3, "%f %f", &vt.u, &vt.v);
-            texcoords[num_texcoords++] = vt;
+            double u, v;
+            sscanf(line + 3, "%lf %lf", &u, &v);
+            texcoords[num_texcoords][0] = u;
+            texcoords[num_texcoords][1] = v;
+            num_texcoords++;
         } else if (strncmp(line, "f ", 2) == 0) {
-            Face f;
-            int matches = sscanf(line + 2, "%d/%d %d/%d %d/%d",
-                                 &f.v_idx[0], &f.vt_idx[0],
-                                 &f.v_idx[1], &f.vt_idx[1],
-                                 &f.v_idx[2], &f.vt_idx[2]);
-            if (matches != 6) {
-                fprintf(stderr, "Failed to parse face: %s", line);
-                continue;
-            }
-            // OBJ indices start at 1
-            for (int i = 0; i < 3; i++) {
-                f.v_idx[i] -= 1;
-                f.vt_idx[i] -= 1;
-            }
-            faces[num_faces++] = f;
+            int vi[3], ti[3];
+            sscanf(line + 2, "%d/%d %d/%d %d/%d", 
+                   &vi[0], &ti[0], &vi[1], &ti[1], &vi[2], &ti[2]);
+            triangles[num_triangles][0] = vi[0] - 1;
+            triangles[num_triangles][1] = vi[1] - 1;
+            triangles[num_triangles][2] = vi[2] - 1;
+            texcoord_indices[num_triangles][0] = ti[0] - 1;
+            texcoord_indices[num_triangles][1] = ti[1] - 1;
+            texcoord_indices[num_triangles][2] = ti[2] - 1;
+            num_triangles++;
         }
     }
     fclose(file);
 }
 
-void load_tga(const char* filename, Image* image) {
-    FILE* file = fopen(filename, "rb");
-    if (!file) {
-        fprintf(stderr, "Failed to open TGA file: %s\n", filename);
-        exit(1);
-    }
-
-    uint8_t header[18];
-    fread(header, 1, 18, file);
-
-    image->width = header[12] + (header[13] << 8);
-    image->height = header[14] + (header[15] << 8);
-    uint8_t depth = header[16];
-
-    if (depth != 24 && depth != 32) {
-        fprintf(stderr, "Unsupported TGA depth: %d\n", depth);
-        exit(1);
-    }
-
-    image->channels = depth / 8;
-    int size = image->width * image->height * image->channels;
-    image->data = (uint8_t*)malloc(size);
-
-    fread(image->data, 1, size, file);
-    fclose(file);
-
-    // TGA images are stored bottom-left to top-right, so we need to flip them vertically
-    int row_size = image->width * image->channels;
-    uint8_t* temp_row = (uint8_t*)malloc(row_size);
-    for (int y = 0; y < image->height / 2; y++) {
-        uint8_t* row_top = image->data + y * row_size;
-        uint8_t* row_bottom = image->data + (image->height - 1 - y) * row_size;
-        memcpy(temp_row, row_top, row_size);
-        memcpy(row_top, row_bottom, row_size);
-        memcpy(row_bottom, temp_row, row_size);
-    }
-    free(temp_row);
-}
-
-void matrix_identity(float mat[4][4]) {
-    memset(mat, 0, 16 * sizeof(float));
+// Matrix operations
+void matrix_multiply(double m[4][4], double v[4], double result[4]) {
     for (int i = 0; i < 4; i++) {
-        mat[i][i] = 1.0f;
-    }
-}
-
-void matrix_multiply(float result[4][4], float a[4][4], float b[4][4]) {
-    float temp[4][4];
-    for (int i = 0; i < 4; i++) {
+        result[i] = 0;
         for (int j = 0; j < 4; j++) {
-            temp[i][j] = 0;
-            for (int k = 0; k < 4; k++) {
-                temp[i][j] += a[i][k] * b[k][j];
-            }
+            result[i] += m[i][j] * v[j];
         }
     }
-    memcpy(result, temp, 16 * sizeof(float));
 }
 
-Vec3 matrix_transform(Vec3 v, float mat[4][4]) {
-    float x = v.x * mat[0][0] + v.y * mat[1][0] + v.z * mat[2][0] + mat[3][0];
-    float y = v.x * mat[0][1] + v.y * mat[1][1] + v.z * mat[2][1] + mat[3][1];
-    float z = v.x * mat[0][2] + v.y * mat[1][2] + v.z * mat[2][2] + mat[3][2];
-    float w = v.x * mat[0][3] + v.y * mat[1][3] + v.z * mat[2][3] + mat[3][3];
-
-    if (w != 0.0f) {
-        x /= w;
-        y /= w;
-        z /= w;
-    }
-    Vec3 result = { x, y, z };
-    return result;
+// Perspective projection matrix
+void perspective_matrix(double fov, double aspect, double near, double far, double matrix[4][4]) {
+    double f = 1.0 / tan(fov * M_PI / 360.0);
+    memset(matrix, 0, 16 * sizeof(double));
+    matrix[0][0] = f / aspect;
+    matrix[1][1] = f;
+    matrix[2][2] = (far + near) / (near - far);
+    matrix[2][3] = (2 * far * near) / (near - far);
+    matrix[3][2] = -1;
 }
 
-void matrix_scale(float mat[4][4], float sx, float sy, float sz) {
-    matrix_identity(mat);
-    mat[0][0] = sx;
-    mat[1][1] = sy;
-    mat[2][2] = sz;
+// Viewport transformation
+void viewport_transform(double x, double y, double w, double h, double depth, double matrix[4][4]) {
+    memset(matrix, 0, 16 * sizeof(double));
+    matrix[0][0] = w/2.0;
+    matrix[0][3] = x + w/2.0;
+    matrix[1][1] = h/2.0;
+    matrix[1][3] = y + h/2.0;
+    matrix[2][2] = depth/2.0;
+    matrix[2][3] = depth/2.0;
+    matrix[3][3] = 1;
 }
 
-void matrix_rotate_y(float mat[4][4], float angle) {
-    matrix_identity(mat);
-    float c = cosf(angle);
-    float s = sinf(angle);
-    mat[0][0] = c;
-    mat[0][2] = s;
-    mat[2][0] = -s;
-    mat[2][2] = c;
+// Barycentric coordinates
+void barycentric(int x, int y, double *v0, double *v1, double *v2, double *coords) {
+    double v0x = v0[0], v0y = v0[1];
+    double v1x = v1[0], v1y = v1[1];
+    double v2x = v2[0], v2y = v2[1];
+    
+    coords[0] = ((v1y - v2y) * (x - v2x) + (v2x - v1x) * (y - v2y)) /
+                ((v1y - v2y) * (v0x - v2x) + (v2x - v1x) * (v0y - v2y));
+    coords[1] = ((v2y - v0y) * (x - v2x) + (v0x - v2x) * (y - v2y)) /
+                ((v1y - v2y) * (v0x - v2x) + (v2x - v1x) * (v0y - v2y));
+    coords[2] = 1 - coords[0] - coords[1];
 }
 
-void matrix_translate(float mat[4][4], float tx, float ty, float tz) {
-    matrix_identity(mat);
-    mat[3][0] = tx;
-    mat[3][1] = ty;
-    mat[3][2] = tz;
+// Rotate point around Y-axis
+void rotate_y(double angle, double point[3]) {
+    double s = sin(angle), c = cos(angle);
+    double x = point[0], z = point[2];
+    point[0] = c * x + s * z;
+    point[2] = -s * x + c * z;
 }
 
-void matrix_perspective(float mat[4][4], float fov, float aspect, float near, float far) {
-    float f = 1.0f / tanf(fov / 2.0f);
-    memset(mat, 0, 16 * sizeof(float));
-    mat[0][0] = f / aspect;
-    mat[1][1] = f;
-    mat[2][2] = (far + near) / (near - far);
-    mat[2][3] = -1.0f;
-    mat[3][2] = (2 * far * near) / (near - far);
-}
+// Draw triangle with lighting
+void draw_triangle(double *v0, double *v1, double *v2, 
+                  double *t0, double *t1, double *t2,
+                  unsigned char *image) {
+    // Compute triangle normal for lighting
+    double edge1[3], edge2[3], normal[3];
+    VEC_SUB(v1, v0, edge1);
+    VEC_SUB(v2, v0, edge2);
+    VEC_CROSS(edge1, edge2, normal);
+    VEC_NORM(normal);
+    
+    // Simple directional light from above-right
+    double light_dir[3] = {0.5, 0.5, 1};
+    VEC_NORM(light_dir);
+    double light_intensity = fmax(0.2, VEC_DOT(normal, light_dir)); // Ambient + diffuse
 
-void clear_buffers() {
-    for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        framebuffer[i].r = 0;
-        framebuffer[i].g = 0;
-        framebuffer[i].b = 0;
-        zbuffer[i] = -INFINITY;
-    }
-}
+    // Compute bounding box
+    int minX = (int)fmax(0, fmin(fmin(v0[0], v1[0]), v2[0]));
+    int maxX = (int)fmin(WIDTH-1, fmax(fmax(v0[0], v1[0]), v2[0]));
+    int minY = (int)fmax(0, fmin(fmin(v0[1], v1[1]), v2[1]));
+    int maxY = (int)fmin(HEIGHT-1, fmax(fmax(v0[1], v1[1]), v2[1]));
 
-void put_pixel(int x, int y, float z, Color color) {
-    if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return;
-    int idx = y * WIDTH + x;
-    if (z > zbuffer[idx]) {
-        zbuffer[idx] = z;
-        framebuffer[idx] = color;
-    }
-}
-
-void draw_triangle(Vec3 v0, Vec3 v1, Vec3 v2, Vec2 uv0, Vec2 uv1, Vec2 uv2) {
-    // Bounding box
-    int minX = fmax(0, floorf(fminf(fminf(v0.x, v1.x), v2.x)));
-    int maxX = fmin(WIDTH - 1, ceilf(fmaxf(fmaxf(v0.x, v1.x), v2.x)));
-    int minY = fmax(0, floorf(fminf(fminf(v0.y, v1.y), v2.y)));
-    int maxY = fmin(HEIGHT - 1, ceilf(fmaxf(fmaxf(v0.y, v1.y), v2.y)));
-
-    float area = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y);
-    if (fabs(area) < 1e-6) return; // Degenerate triangle
-
-    // For each pixel in bounding box
+    // Rasterize
     for (int y = minY; y <= maxY; y++) {
         for (int x = minX; x <= maxX; x++) {
-            // Barycentric coordinates
-            float w0 = ((v1.x - v0.x) * (y - v0.y) - (v1.y - v0.y) * (x - v0.x)) / area;
-            float w1 = ((v2.x - v1.x) * (y - v1.y) - (v2.y - v1.y) * (x - v1.x)) / area;
-            float w2 = ((v0.x - v2.x) * (y - v2.y) - (v0.y - v2.y) * (x - v2.x)) / area;
-            if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-                // Perspective correct interpolation
-                float z = w0 * v0.z + w1 * v1.z + w2 * v2.z;
-                float u = w0 * uv0.u / v0.z + w1 * uv1.u / v1.z + w2 * uv2.u / v2.z;
-                float v = w0 * uv0.v / v0.z + w1 * uv1.v / v1.z + w2 * uv2.v / v2.z;
-                float inv_z = w0 / v0.z + w1 / v1.z + w2 / v2.z;
-                u /= inv_z;
-                v /= inv_z;
-
-                // Sample texture
-                int tex_x = fmin(texture.width - 1, fmax(0, (int)(u * texture.width)));
-                int tex_y = fmin(texture.height - 1, fmax(0, (int)((v) * texture.height)));
-                int tex_idx = (tex_y * texture.width + tex_x) * texture.channels;
-                Color color = {
-                    texture.data[tex_idx],
-                    texture.data[tex_idx + 1],
-                    texture.data[tex_idx + 2]
-                };
-                put_pixel(x, y, z, color);
+            double coords[3];
+            barycentric(x, y, v0, v1, v2, coords);
+            
+            if (coords[0] >= 0 && coords[1] >= 0 && coords[2] >= 0) {
+                // Interpolate Z
+                double z = coords[0]*v0[2] + coords[1]*v1[2] + coords[2]*v2[2];
+                int idx = y*WIDTH + x;
+                
+                if (z < zbuffer[idx]) {
+                    zbuffer[idx] = z;
+                    
+                    // Interpolate texture coordinates
+                    double u = coords[0]*t0[0] + coords[1]*t1[0] + coords[2]*t2[0];
+                    double v = coords[0]*t0[1] + coords[1]*t1[1] + coords[2]*t2[1];
+                    
+                    // Sample texture
+                    int tx = (int)(u * (texture_width - 1));
+                    int ty = (int)((1-v) * (texture_height - 1));
+                    tx = (tx < 0) ? 0 : (tx >= texture_width ? texture_width-1 : tx);
+                    ty = (ty < 0) ? 0 : (ty >= texture_height ? texture_height-1 : ty);
+                    
+                    int tidx = (ty * texture_width + tx) * texture_channels;
+                    int iidx = (y * WIDTH + x) * 3;
+                    
+                    // Apply lighting
+                    image[iidx] = (unsigned char)(texture_data[tidx] * light_intensity);
+                    image[iidx+1] = (unsigned char)(texture_data[tidx+1] * light_intensity);
+                    image[iidx+2] = (unsigned char)(texture_data[tidx+2] * light_intensity);
+                }
             }
         }
     }
 }
 
-void save_framebuffer(const char* filename) {
-    FILE* f = fopen(filename, "wb");
-    if (!f) {
-        fprintf(stderr, "Failed to save framebuffer to %s\n", filename);
+int main() {
+    // Read the OBJ file
+    parse_obj_file("african_head.obj");
+
+    // Load the texture
+    texture_data = stbi_load("african_head_diffuse.tga", &texture_width, &texture_height, &texture_channels, 3);
+    if (!texture_data) {
+        fprintf(stderr, "Failed to load texture image\n");
+        return 1;
+    }
+
+    // Allocate buffers
+    zbuffer = malloc(WIDTH * HEIGHT * sizeof(double));
+    unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
+
+    // Initialize FFmpeg
+    avformat_network_init();
+
+    // Set up FFmpeg encoding
+    AVFormatContext *oc = NULL;
+    AVOutputFormat *fmt = NULL;
+    AVStream *video_st = NULL;
+    AVCodecContext *c = NULL;
+    AVCodec *codec = NULL;
+
+    // Allocate the output media context
+    avformat_alloc_output_context2(&oc, NULL, NULL, "output.mp4");
+    if (!oc) {
+        fprintf(stderr, "Could not deduce output format from file extension.\n");
         exit(1);
     }
-    fprintf(f, "P6\n%d %d\n255\n", WIDTH, HEIGHT);
-    for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        fputc(framebuffer[i].r, f);
-        fputc(framebuffer[i].g, f);
-        fputc(framebuffer[i].b, f);
-    }
-    fclose(f);
-}
+    fmt = oc->oformat;
 
+    // Add the video stream using the default format codecs and initialize the codec
+    codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    if (!codec) {
+        fprintf(stderr, "Codec not found\n");
+        exit(1);
+    }
+
+    video_st = avformat_new_stream(oc, NULL);
+    if (!video_st) {
+        fprintf(stderr, "Could not allocate stream\n");
+        exit(1);
+    }
+
+    c = avcodec_alloc_context3(codec);
+    if (!c) {
+        fprintf(stderr, "Could not allocate video codec context\n");
+        exit(1);
+    }
+
+    // Set codec parameters
+    c->codec_id = AV_CODEC_ID_H264;
+    c->bit_rate = 400000;
+    c->width = WIDTH;
+    c->height = HEIGHT;
+    video_st->time_base = (AVRational){1, 30};
+    c->time_base = video_st->time_base;
+    c->gop_size = 10;
+    c->max_b_frames = 1;
+    c->pix_fmt = AV_PIX_FMT_YUV420P;
+
+    if (oc->oformat->flags & AVFMT_GLOBALHEADER)
+        c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    // Open the codec
+    if (avcodec_open2(c, codec, NULL) < 0) {
+        fprintf(stderr, "Could not open codec\n");
+        exit(1);
+    }
+
+    // Copy the stream parameters to the muxer
+    if (avcodec_parameters_from_context(video_st->codecpar, c) < 0) {
+        fprintf(stderr, "Could not copy the stream parameters\n");
+        exit(1);
+    }
+
+    // Open the output file
+    if (!(fmt->flags & AVFMT_NOFILE)) {
+        if (avio_open(&oc->pb, "output.mp4", AVIO_FLAG_WRITE) < 0) {
+            fprintf(stderr, "Could not open 'output.mp4'\n");
+            exit(1);
+        }
+    }
+
+    // Write the stream header
+    if (avformat_write_header(oc, NULL) < 0) {
+        fprintf(stderr, "Error occurred when opening output file\n");
+        exit(1);
+    }
+
+    // For image conversion
+    struct SwsContext *sws_ctx = sws_getContext(
+        WIDTH, HEIGHT, AV_PIX_FMT_RGB24,
+        WIDTH, HEIGHT, AV_PIX_FMT_YUV420P,
+        SWS_BILINEAR, NULL, NULL, NULL
+    );
+
+    AVFrame *frame = av_frame_alloc();
+    frame->format = c->pix_fmt;
+    frame->width = c->width;
+    frame->height = c->height;
+
+    // Allocate the buffers for the frame data
+    if (av_image_alloc(frame->data, frame->linesize, c->width, c->height, c->pix_fmt, 32) < 0) {
+        fprintf(stderr, "Could not allocate raw picture buffer\n");
+        exit(1);
+    }
+
+    AVPacket pkt;
+    int frame_count = 0;
+
+    double angle_per_frame = (2.0 * M_PI) / N_FRAMES;
+    
+    // Projection matrices
+    double projection[4][4];
+    perspective_matrix(45.0, (double)WIDTH/HEIGHT, 0.1, 100.0, projection);
+    
+    double viewport[4][4];
+    viewport_transform(0, 0, WIDTH, HEIGHT, 255, viewport);
+
+    for (int frame_num = 0; frame_num < N_FRAMES; frame_num++) {
+        printf("Rendering frame %d/%d\n", frame_num + 1, N_FRAMES);
+
+        // Clear buffers
+        for (int i = 0; i < WIDTH * HEIGHT; i++) {
+            zbuffer[i] = INFINITY;
+        }
+        memset(output_image, 0, WIDTH * HEIGHT * 3);
+
+        // Transform vertices
+        double rotation_y_angle = frame_num * angle_per_frame;
+        
+        for (int i = 0; i < num_triangles; i++) {
+            double v0[4], v1[4], v2[4];
+            double p0[4], p1[4], p2[4];
+            
+            // Get vertices
+            for (int j = 0; j < 3; j++) {
+                v0[j] = vertices[triangles[i][0]][j];
+                v1[j] = vertices[triangles[i][1]][j];
+                v2[j] = vertices[triangles[i][2]][j];
+            }
+            v0[3] = v1[3] = v2[3] = 1.0;
+
+            // Scale the model
+            for (int j = 0; j < 3; j++) {
+                v0[j] *= 2.0;
+                v1[j] *= 2.0;
+                v2[j] *= 2.0;
+            }
+
+            // Apply transformations
+            rotate_y(rotation_y_angle, v0);
+            rotate_y(rotation_y_angle, v1);
+            rotate_y(rotation_y_angle, v2);
+
+            // Translate away from camera
+            v0[2] += 5.0; v1[2] += 5.0; v2[2] += 5.0;
+
+            // Apply projection
+            matrix_multiply(projection, v0, p0);
+            matrix_multiply(projection, v1, p1);
+            matrix_multiply(projection, v2, p2);
+
+            // Perspective divide
+            for (int j = 0; j < 3; j++) {
+                p0[j] /= p0[3];
+                p1[j] /= p1[3];
+                p2[j] /= p2[3];
+            }
+
+            // Viewport transform
+            matrix_multiply(viewport, p0, v0);
+            matrix_multiply(viewport, p1, v1);
+            matrix_multiply(viewport, p2, v2);
+
+            // Get texture coordinates
+            double *t0 = texcoords[texcoord_indices[i][0]];
+            double *t1 = texcoords[texcoord_indices[i][1]];
+            double *t2 = texcoords[texcoord_indices[i][2]];
+
+            // Draw triangle
+            draw_triangle(v0, v1, v2, t0, t1, t2, output_image);
+        }
+
+        // Convert RGB to YUV and encode
+        const uint8_t *inData[1] = { output_image };
+        int inLinesize[1] = { 3 * WIDTH };
+        sws_scale(sws_ctx, inData, inLinesize, 0, HEIGHT, frame->data, frame->linesize);
+
+        frame->pts = frame_count++;
+
+        // Encode the frame
+        av_init_packet(&pkt);
+        pkt.data = NULL;
+        pkt.size = 0;
+
+        int ret = avcodec_send_frame(c, frame);
+        if (ret < 0) {
+            fprintf(stderr, "Error sending a frame for encoding\n");
+            exit(1);
+        }
+
+        while (ret >= 0) {
+            ret = avcodec_receive_packet(c, &pkt);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+                break;
+            else if (ret < 0) {
+                fprintf(stderr, "Error during encoding\n");
+                exit(1);
+            }
+
+            av_packet_rescale_ts(&pkt, c->time_base, video_st->time_base);
+            pkt.stream_index = video_st->index;
+
+            ret = av_interleaved_write_frame(oc, &pkt);
+            if (ret < 0) {
+                fprintf(stderr, "Error while writing output packet\n");
+                exit(1);
+            }
+            av_packet_unref(&pkt);
+        }
+    }
+
+    // Flush the encoder
+    avcodec_send_frame(c, NULL);
+    while (avcodec_receive_packet(c, &pkt) == 0) {
+        av_packet_rescale_ts(&pkt, c->time_base, video_st->time_base);
+        pkt.stream_index = video_st->index;
+        av_interleaved_write_frame(oc, &pkt);
+        av_packet_unref(&pkt);
+    }
+
+    // Write the trailer
+    av_write_trailer(oc);
+
+    // Clean up
+    avcodec_close(c);
+    avcodec_free_context(&c);
+    av_frame_free(&frame);
+    sws_freeContext(sws_ctx);
+    if (!(fmt->flags & AVFMT_NOFILE))
+        avio_closep(&oc->pb);
+    avformat_free_context(oc);
+
+    // Free resources
+    free(zbuffer);
+    free(output_image);
+    stbi_image_free(texture_data);
+
+    printf("Video saved to 'output.mp4'\n");
+    return 0;
+}
