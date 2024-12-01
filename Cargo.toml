@@ -1,3 +1,8 @@
+[package]
+name = "rasterizer"
+version = "0.1.0"
+edition = "2021"
+
 [dependencies]
 ffmpeg-next = "5.1.1"
 image = "0.24"
