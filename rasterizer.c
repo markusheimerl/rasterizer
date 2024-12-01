@@ -4,7 +4,6 @@
 #include <float.h>
 #include <string.h>
 #include <limits.h>
-// gcc -O3 -fopenmp rasterizer.c -lm -lavformat -lavcodec -lavutil -lswscale -lswresample -lpthread
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -90,8 +89,9 @@ void rotate_y(double angle, double point[3]) {
 
 // Sample texture
 void sample_texture(double u, double v, double color[3]) {
-    u = fmin(fmax(u, 0.0), 1.0); v = fmin(fmax(v, 0.0), 1.0);
-    int x = (int)(u * (texture_width - 1)), y = (int)((1.0 - v) * (texture_height - 1));
+    u = fmin(fmax(u, 0.0), 1.0); 
+    v = 1.0 - fmin(fmax(v, 0.0), 1.0); // Invert v for correct orientation
+    int x = (int)(u * (texture_width - 1)), y = (int)(v * (texture_height - 1));
     int idx = (y * texture_width + x) * texture_channels;
     color[0] = texture_data[idx] / 255.0;
     color[1] = texture_data[idx + 1] / 255.0;
@@ -235,15 +235,15 @@ int main() {
     int frame_count = 0;
 
     // Define constants for transformations
-    double scale_factor = 0.5;
-    double translation[3] = {0, 0, -3};
+    double scale_factor = 1.0; // Scale to get a proper size
+    double translation[3] = {0, 0, 5}; // Proper translation for the head to be near the camera
     double initial_rotation = 0.0;
     double angle_per_frame = (2.0 * M_PI) / FRAMES;
 
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
 
-        memset(image, 255, WIDTH * HEIGHT * 4 * sizeof(double));
+        memset(image, 0, WIDTH * HEIGHT * 4 * sizeof(double)); // Set background to black
         for (int i = 0; i < WIDTH * HEIGHT; i++) {
             image[i * 4 + 3] = DBL_MAX; // Set depth buffer to max
         }
@@ -252,7 +252,7 @@ int main() {
         double rotation_y_angle = initial_rotation + frame_num * angle_per_frame;
         for (int i = 0; i < num_vertices; i++) {
             vertices[i][0] = initial_vertices[i][0] * scale_factor;
-            vertices[i][1] = initial_vertices[i][1] * scale_factor;
+            vertices[i][1] = -initial_vertices[i][1] * scale_factor; // Invert Y for correct orientation
             vertices[i][2] = initial_vertices[i][2] * scale_factor;
 
             rotate_y(rotation_y_angle, vertices[i]);
@@ -268,8 +268,9 @@ int main() {
             double uv_coords[3][2];
             for (int j = 0; j < 3; j++) {
                 double *vertex = vertices[triangles[i][j]];
-                verts[j][0] = (vertex[0] / -vertex[2]) * WIDTH / 2 + WIDTH / 2.0;
-                verts[j][1] = (vertex[1] / -vertex[2]) * HEIGHT / 2 + HEIGHT / 2.0;
+                double inv_z = 1.0 / vertex[2]; // Correct perspective placement
+                verts[j][0] = vertex[0] * inv_z * WIDTH + WIDTH / 2.0;
+                verts[j][1] = vertex[1] * inv_z * HEIGHT + HEIGHT / 2.0;
                 verts[j][2] = vertex[2];
                 uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
                 uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
