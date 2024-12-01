@@ -91,10 +91,23 @@ void rotate_y(double angle, double point[3]) {
 
 // Sample texture
 void sample_texture(double u, double v, double color[3]) {
-    u = fmin(fmax(u, 0.0), 1.0); 
+    // Clamp and wrap UV coordinates
+    u = fmod(u, 1.0); if (u < 0) u += 1.0;
+    v = fmod(v, 1.0); if (v < 0) v += 1.0;
+
+    u = fmin(fmax(u, 0.0), 1.0);
     v = 1.0 - fmin(fmax(v, 0.0), 1.0); // Invert v for correct orientation
-    int x = (int)(u * (texture_width - 1)), y = (int)(v * (texture_height - 1));
-    int idx = (y * texture_width + x) * texture_channels;
+
+    int x = (int)(u * (texture_width - 1));
+    int y = (int)(v * (texture_height - 1));
+
+    int idx = (y * texture_width + x) * 3;
+
+    if (idx < 0 || idx >= texture_width * texture_height * 3) {
+        fprintf(stderr, "Texture index out of bounds: %d\n", idx);
+        return;
+    }
+
     color[0] = texture_data[idx] / 255.0;
     color[1] = texture_data[idx + 1] / 255.0;
     color[2] = texture_data[idx + 2] / 255.0;
@@ -135,10 +148,10 @@ void draw_triangle(double *image, const double pts[3][4], const double uv[3][2])
 
 int main() {
     // Read the OBJ file
-    parse_obj_file("african_head.obj");
+    parse_obj_file("drone.obj");
 
     // Load the texture
-    texture_data = stbi_load("african_head_diffuse.tga", &texture_width, &texture_height, &texture_channels, 3);
+    texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
     if (!texture_data) { fprintf(stderr, "Failed to load texture image\n"); return 1; }
 
     // Allocate image buffers
