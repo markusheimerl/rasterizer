@@ -3,6 +3,7 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
+// gcc -O3 -fopenmp rasterizer.c -lm -lavformat -lavcodec -lavutil -lswscale -lswresample -lpthread
 #include <limits.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -237,7 +238,7 @@ int main() {
 
     // Define constants for transformations
     double scale_factor = 1.0; // Scale to get a proper size
-    double translation[3] = {0, 0, 5}; // Proper translation for the head to be near the camera
+    double translation[3] = {0, 0, 3}; // Proper translation for the head to be near the camera
     double initial_rotation = 0.0;
     double angle_per_frame = (2.0 * M_PI) / FRAMES;
 
