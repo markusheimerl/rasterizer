@@ -251,7 +251,7 @@ int main() {
 
     // Define constants for transformations
     double scale_factor = 1.0; // Scale to get a proper size
-    double translation[3] = {0, 0, 3}; // Proper translation for the head to be near the camera
+    double translation[3] = {0, 1, 3}; // Proper translation for the head to be near the camera
     double initial_rotation = 0.0;
     double angle_per_frame = (2.0 * M_PI) / FRAMES;
 
