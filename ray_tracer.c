@@ -302,7 +302,7 @@ int main() {
     AVCodec *codec = NULL;
 
     // Allocate the output media context
-    avformat_alloc_output_context2(&oc, NULL, NULL, "output.mp4");
+    avformat_alloc_output_context2(&oc, NULL, NULL, "output_raytracer.mp4");
     if (!oc) {
         fprintf(stderr, "Could not deduce output format from file extension.\n");
         exit(1);
@@ -356,8 +356,8 @@ int main() {
 
     // Open the output file
     if (!(fmt->flags & AVFMT_NOFILE)) {
-        if (avio_open(&oc->pb, "output.mp4", AVIO_FLAG_WRITE) < 0) {
-            fprintf(stderr, "Could not open 'output.mp4'\n");
+        if (avio_open(&oc->pb, "output_raytracer.mp4", AVIO_FLAG_WRITE) < 0) {
+            fprintf(stderr, "Could not open 'output_raytracer.mp4'\n");
             exit(1);
         }
     }
@@ -526,7 +526,7 @@ int main() {
     free(output_image);
     stbi_image_free(texture_data);
 
-    printf("Video saved to 'output.mp4'\n");
+    printf("Video saved to 'output_raytracer.mp4'\n");
 
     return 0;
 }

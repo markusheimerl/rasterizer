@@ -17,6 +17,7 @@
 #define WIDTH 640
 #define HEIGHT 480
 #define FRAMES 60
+#define ASPECT_RATIO ((double)WIDTH / (double)HEIGHT)
 
 // Vector macros
 #define VEC_SUB(a,b,r) { (r)[0]=(a)[0]-(b)[0]; (r)[1]=(a)[1]-(b)[1]; (r)[2]=(a)[2]-(b)[2]; }
@@ -153,7 +154,7 @@ int main() {
     AVCodec *codec = NULL;
 
     // Allocate the output media context
-    avformat_alloc_output_context2(&av_format_ctx, NULL, NULL, "output.mp4");
+    avformat_alloc_output_context2(&av_format_ctx, NULL, NULL, "output_rasterizer.mp4");
     if (!av_format_ctx) {
         fprintf(stderr, "Could not deduce output format from file extension.\n");
         return 1;
@@ -202,7 +203,7 @@ int main() {
     }
 
     if (!(output_format->flags & AVFMT_NOFILE)) {
-        if (avio_open(&av_format_ctx->pb, "output.mp4", AVIO_FLAG_WRITE) < 0) {
+        if (avio_open(&av_format_ctx->pb, "output_rasterizer.mp4", AVIO_FLAG_WRITE) < 0) {
             fprintf(stderr, "Could not open output file.\n");
             return 1;
         }
@@ -262,15 +263,15 @@ int main() {
             vertices[i][2] += translation[2];
         }
 
-        // Perspective transformation
+        // Perspective transformation with consideration for aspect ratio
         for (int i = 0; i < num_triangles; i++) {
             double verts[3][4];
             double uv_coords[3][2];
             for (int j = 0; j < 3; j++) {
                 double *vertex = vertices[triangles[i][j]];
                 double inv_z = 1.0 / vertex[2]; // Correct perspective placement
-                verts[j][0] = vertex[0] * inv_z * WIDTH + WIDTH / 2.0;
-                verts[j][1] = vertex[1] * inv_z * HEIGHT + HEIGHT / 2.0;
+                verts[j][0] = vertex[0] * inv_z * WIDTH / (2.0 * ASPECT_RATIO) + WIDTH / 2.0;
+                verts[j][1] = vertex[1] * inv_z * HEIGHT / 2.0 + HEIGHT / 2.0;
                 verts[j][2] = vertex[2];
                 uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
                 uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
@@ -356,7 +357,7 @@ int main() {
     free(output_image);
     stbi_image_free(texture_data);
 
-    printf("Video saved to 'output.mp4'\n");
+    printf("Video saved to 'output_rasterizer.mp4'\n");
 
     return 0;
 }
