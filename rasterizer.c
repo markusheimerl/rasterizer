@@ -3,7 +3,7 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
-// gcc -O3 -fopenmp rasterizer.c -lm -lavformat -lavcodec -lavutil -lswscale -lswresample -lpthread
+// gcc -O3 rasterizer.c -lm -lavformat -lavcodec -lavutil -lswscale && ./a.out
 #include <limits.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -150,53 +150,19 @@ void draw_triangle(double *image, const double pts[3][4], const double uv[3][2])
 }
 
 int main() {
-    // Read the OBJ file
     parse_obj_file("drone.obj");
-
-    // Load the texture
     texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
-    if (!texture_data) { fprintf(stderr, "Failed to load texture image\n"); return 1; }
-
-    // Allocate image buffers
     double *image = malloc(WIDTH * HEIGHT * 4 * sizeof(double));
     unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
 
-    // Initialize FFmpeg
-    avformat_network_init();
-
-    AVOutputFormat *output_format = NULL;
+    // FFmpeg initialization
     AVFormatContext *av_format_ctx = NULL;
-    AVStream *video_stream = NULL;
-    AVCodecContext *codec_ctx = NULL;
-    AVCodec *codec = NULL;
-
-    // Allocate the output media context
     avformat_alloc_output_context2(&av_format_ctx, NULL, NULL, "output_rasterizer.mp4");
-    if (!av_format_ctx) {
-        fprintf(stderr, "Could not deduce output format from file extension.\n");
-        return 1;
-    }
-    output_format = av_format_ctx->oformat;
+    AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    AVStream *video_stream = avformat_new_stream(av_format_ctx, NULL);
+    AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
 
-    codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    if (!codec) {
-        fprintf(stderr, "Codec not found\n");
-        return 1;
-    }
-
-    video_stream = avformat_new_stream(av_format_ctx, NULL);
-    if (!video_stream) {
-        fprintf(stderr, "Could not allocate stream\n");
-        return 1;
-    }
-
-    codec_ctx = avcodec_alloc_context3(codec);
-    if (!codec_ctx) {
-        fprintf(stderr, "Could not allocate video codec context\n");
-        return 1;
-    }
-
-    codec_ctx->codec_id = AV_CODEC_ID_H264;
+    // Set basic codec parameters
     codec_ctx->bit_rate = 400000;
     codec_ctx->width = WIDTH;
     codec_ctx->height = HEIGHT;
@@ -206,190 +172,103 @@ int main() {
     codec_ctx->max_b_frames = 1;
     codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
 
-    if (av_format_ctx->oformat->flags & AVFMT_GLOBALHEADER)
-        codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-    if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
-        fprintf(stderr, "Could not open codec\n");
+    avcodec_open2(codec_ctx, codec, NULL);
+    avcodec_parameters_from_context(video_stream->codecpar, codec_ctx);
+    avio_open(&av_format_ctx->pb, "output_rasterizer.mp4", AVIO_FLAG_WRITE);
+    int ret = avformat_write_header(av_format_ctx, NULL);
+    if (ret < 0) {
+        fprintf(stderr, "Error writing header\n");
         return 1;
     }
 
-    if (avcodec_parameters_from_context(video_stream->codecpar, codec_ctx) < 0) {
-        fprintf(stderr, "Could not copy the stream parameters\n");
-        return 1;
-    }
-
-    if (!(output_format->flags & AVFMT_NOFILE)) {
-        if (avio_open(&av_format_ctx->pb, "output_rasterizer.mp4", AVIO_FLAG_WRITE) < 0) {
-            fprintf(stderr, "Could not open output file.\n");
-            return 1;
-        }
-    }
-
-    if (avformat_write_header(av_format_ctx, NULL) < 0) {
-        fprintf(stderr, "Error occurred when opening output file\n");
-        return 1;
-    }
-
-    // For image conversion
-    struct SwsContext *sws_ctx = sws_getContext(
-        WIDTH, HEIGHT, AV_PIX_FMT_RGB24,
-        WIDTH, HEIGHT, AV_PIX_FMT_YUV420P,
-        SWS_BILINEAR, NULL, NULL, NULL
-    );
-
+    // Setup frame and conversion context
+    struct SwsContext *sws_ctx = sws_getContext(WIDTH, HEIGHT, AV_PIX_FMT_RGB24,
+        WIDTH, HEIGHT, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
     AVFrame *frame = av_frame_alloc();
     frame->format = codec_ctx->pix_fmt;
-    frame->width = codec_ctx->width;
-    frame->height = codec_ctx->height;
+    frame->width = WIDTH;
+    frame->height = HEIGHT;
+    av_image_alloc(frame->data, frame->linesize, WIDTH, HEIGHT, codec_ctx->pix_fmt, 32);
 
-    // Allocate the buffers for the frame data
-    if (av_image_alloc(frame->data, frame->linesize, codec_ctx->width, codec_ctx->height, codec_ctx->pix_fmt, 32) < 0) {
-        fprintf(stderr, "Could not allocate raw picture buffer\n");
-        return 1;
-    }
-
-    AVPacket pkt;
-    int frame_count = 0;
-
-    // Define constants for transformations
-    double scale_factor = 1.0; // Scale to get a proper size
-    double translation[3] = {0, 1, 3}; // Proper translation for the head to be near the camera
-    double initial_rotation = 0.0;
+    // Animation parameters
+    double scale_factor = 1.0;
+    double translation[3] = {0, 1, 3};
     double angle_per_frame = (2.0 * M_PI) / FRAMES;
 
+    // Main rendering loop
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
+        memset(image, 0, WIDTH * HEIGHT * 4 * sizeof(double));
+        for (int i = 0; i < WIDTH * HEIGHT; i++) image[i * 4 + 3] = DBL_MAX;
 
-        memset(image, 0, WIDTH * HEIGHT * 4 * sizeof(double)); // Set background to black
-        for (int i = 0; i < WIDTH * HEIGHT; i++) {
-            image[i * 4 + 3] = DBL_MAX; // Set depth buffer to max
-        }
-
-        // Transformation: rotate and translate
-        double rotation_y_angle = initial_rotation + frame_num * angle_per_frame;
+        // Transform vertices
         for (int i = 0; i < num_vertices; i++) {
             vertices[i][0] = initial_vertices[i][0] * scale_factor;
-            vertices[i][1] = -initial_vertices[i][1] * scale_factor; // Invert Y for correct orientation
+            vertices[i][1] = -initial_vertices[i][1] * scale_factor;
             vertices[i][2] = initial_vertices[i][2] * scale_factor;
-
-            rotate_y(rotation_y_angle, vertices[i]);
-
+            rotate_y(frame_num * angle_per_frame, vertices[i]);
             vertices[i][0] += translation[0];
             vertices[i][1] += translation[1];
             vertices[i][2] += translation[2];
         }
 
-        // Perspective transformation with consideration for aspect ratio
+        // Render triangles
         for (int i = 0; i < num_triangles; i++) {
-            double verts[3][4];
-            double uv_coords[3][2];
-            
-            // Calculate perspective projection constants
+            double verts[3][4], uv_coords[3][2];
             double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
             double aspect = (double)WIDTH / HEIGHT;
             
             for (int j = 0; j < 3; j++) {
                 double *vertex = vertices[triangles[i][j]];
-                
-                // Perspective projection matrix multiplication
-                double z = vertex[2];
-                if (z < NEAR_PLANE) z = NEAR_PLANE;  // Prevent division by zero
-                
-                // Apply perspective projection
-                double x_projected = -(f / aspect) * vertex[0] / z;
-                double y_projected = f * vertex[1] / z;
-                
-                // Convert to screen coordinates
-                verts[j][0] = (x_projected + 1.0) * WIDTH / 2.0;
-                verts[j][1] = (y_projected + 1.0) * HEIGHT / 2.0;
-                verts[j][2] = z;  // Store z for depth testing
-                
+                double z = fmax(vertex[2], NEAR_PLANE);
+                verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
+                verts[j][1] = (f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
+                verts[j][2] = z;
                 uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
                 uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
             }
             draw_triangle(image, verts, uv_coords);
         }
 
-        // Prepare frame data
-        for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < WIDTH; x++) {
-                int idx = (y * WIDTH + x) * 4;
-                int out_idx = (y * WIDTH + x) * 3;
-                output_image[out_idx] = (unsigned char)(fmax(0.0, fmin(1.0, image[idx])) * 255);
-                output_image[out_idx + 1] = (unsigned char)(fmax(0.0, fmin(1.0, image[idx + 1])) * 255);
-                output_image[out_idx + 2] = (unsigned char)(fmax(0.0, fmin(1.0, image[idx + 2])) * 255);
-            }
-        }
+        // Convert to output format
+        for (int y = 0; y < HEIGHT; y++)
+            for (int x = 0; x < WIDTH; x++)
+                for (int c = 0; c < 3; c++)
+                    output_image[(y * WIDTH + x) * 3 + c] = 
+                        (unsigned char)(fmax(0.0, fmin(1.0, image[(y * WIDTH + x) * 4 + c])) * 255);
 
-        // Convert RGB to YUV and encode
-        const uint8_t *inData[1] = { output_image };
-        int inLinesize[1] = { 3 * WIDTH };
+        // Encode frame
+        const uint8_t *inData[1] = {output_image};
+        int inLinesize[1] = {3 * WIDTH};
         sws_scale(sws_ctx, inData, inLinesize, 0, HEIGHT, frame->data, frame->linesize);
-
-        frame->pts = frame_count++;
-
-        // Encode the frame
+        frame->pts = frame_num;
+        
+        AVPacket pkt;
         av_init_packet(&pkt);
-        pkt.data = NULL;
-        pkt.size = 0;
-
-        int ret = avcodec_send_frame(codec_ctx, frame);
-        if (ret < 0) {
-            fprintf(stderr, "Error sending a frame for encoding\n");
-            exit(1);
-        }
-
-        while (ret >= 0) {
-            ret = avcodec_receive_packet(codec_ctx, &pkt);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-                break;
-            else if (ret < 0) {
-                fprintf(stderr, "Error during encoding\n");
-                exit(1);
-            }
-
-            // Rescale output packet timestamp values from codec to stream timebase
+        avcodec_send_frame(codec_ctx, frame);
+        while (avcodec_receive_packet(codec_ctx, &pkt) >= 0) {
             av_packet_rescale_ts(&pkt, codec_ctx->time_base, video_stream->time_base);
             pkt.stream_index = video_stream->index;
-
-            // Write the compressed frame to the media file
-            ret = av_interleaved_write_frame(av_format_ctx, &pkt);
-            if (ret < 0) {
-                fprintf(stderr, "Error while writing output packet\n");
-                exit(1);
-            }
+            av_interleaved_write_frame(av_format_ctx, &pkt);
             av_packet_unref(&pkt);
         }
     }
 
-    // Flush the encoder
+    // Flush encoder
     avcodec_send_frame(codec_ctx, NULL);
-    while (avcodec_receive_packet(codec_ctx, &pkt) == 0) {
+    AVPacket pkt;
+    while (avcodec_receive_packet(codec_ctx, &pkt) >= 0) {
         av_packet_rescale_ts(&pkt, codec_ctx->time_base, video_stream->time_base);
         pkt.stream_index = video_stream->index;
         av_interleaved_write_frame(av_format_ctx, &pkt);
         av_packet_unref(&pkt);
     }
 
-    // Write the trailer
     av_write_trailer(av_format_ctx);
-
-    // Clean up
-    avcodec_close(codec_ctx);
-    avcodec_free_context(&codec_ctx);
-    av_frame_free(&frame);
-    sws_freeContext(sws_ctx);
-    if (!(output_format->flags & AVFMT_NOFILE))
-        avio_closep(&av_format_ctx->pb);
+    avio_closep(&av_format_ctx->pb);
     avformat_free_context(av_format_ctx);
-
-    // Free resources
     free(image);
     free(output_image);
     stbi_image_free(texture_data);
-
-    printf("Video saved to 'output_rasterizer.mp4'\n");
-
     return 0;
 }
