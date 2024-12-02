@@ -284,7 +284,7 @@ int main() {
             for (int j = 0; j < 3; j++) {
                 double *vertex = vertices[triangles[i][j]];
                 double inv_z = 1.0 / vertex[2]; // Correct perspective placement
-                verts[j][0] = vertex[0] * inv_z * WIDTH / (2.0 * ASPECT_RATIO) + WIDTH / 2.0;
+                verts[j][0] = -vertex[0] * inv_z * WIDTH / (2.0 * ASPECT_RATIO) + WIDTH / 2.0;
                 verts[j][1] = vertex[1] * inv_z * HEIGHT / 2.0 + HEIGHT / 2.0;
                 verts[j][2] = vertex[2];
                 uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
