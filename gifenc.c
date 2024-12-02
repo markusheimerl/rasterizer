@@ -11,15 +11,23 @@
     ssize_t _write_result = write((fd), (uint8_t []) {(n) & 0xFF, (n) >> 8}, 2); \
     if (_write_result != 2) { \
         perror("Error writing number"); \
-        /* Handle the error as appropriate for your application, e.g., by exiting */ \
+        exit(EXIT_FAILURE); \
     } \
 } while (0)
+
+void safe_write(int fd, const void *buf, size_t count) {
+    ssize_t result = write(fd, buf, count);
+    if (result != (ssize_t) count) {
+        perror("Error writing data");
+        exit(EXIT_FAILURE);
+    }
+}
 
 static uint8_t vga[0x30] = {
     0x00, 0x00, 0x00, 0xAA, 0x00, 0x00, 0x00, 0xAA, 0x00, 0xAA, 0x55, 0x00,
     0x00, 0x00, 0xAA, 0xAA, 0x00, 0xAA, 0x00, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0x55, 0x55, 0x55, 0xFF, 0x55, 0x55, 0x55, 0xFF, 0x55, 0xFF, 0xFF, 0x55,
-    0x55, 0x55, 0xFF, 0xFF, 0x55, 0xFF, 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x55, 0x55, 0x55, 0xFF, 0x55, 0x55, 0xFF, 0xFF, 0x55, 0xFF, 0x55, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF,
 };
 
 typedef struct Node {
@@ -49,7 +57,7 @@ static void del_trie(Node *root, int degree) {
 }
 
 static void write_and_store(int s, uint8_t *dst, int fd, const uint8_t *src, size_t len) {
-    write(fd, src, len);
+    safe_write(fd, src, len);
     if (s) {
         memcpy(dst, src, len);
         dst += len;
@@ -57,11 +65,11 @@ static void write_and_store(int s, uint8_t *dst, int fd, const uint8_t *src, siz
 }
 
 static void put_loop(ge_GIF *gif, uint16_t loop) {
-    write(gif->fd, (uint8_t []) {'!', 0xFF, 0x0B}, 3);
-    write(gif->fd, "NETSCAPE2.0", 11);
-    write(gif->fd, (uint8_t []) {0x03, 0x01}, 2);
+    safe_write(gif->fd, (uint8_t[]) {'!', 0xFF, 0x0B}, 3);
+    safe_write(gif->fd, "NETSCAPE2.0", 11);
+    safe_write(gif->fd, (uint8_t[]) {0x03, 0x01}, 2);
     write_num(gif->fd, loop);
-    write(gif->fd, "\0", 1);
+    safe_write(gif->fd, "\0", 1);
 }
 
 ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
@@ -76,7 +84,7 @@ ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
     gif->fd = creat(fname, 0666);
     if (gif->fd == -1) { free(gif); return NULL; }
 
-    write(gif->fd, "GIF89a", 6);
+    safe_write(gif->fd, "GIF89a", 6);
     write_num(gif->fd, width);
     write_num(gif->fd, height);
 
@@ -84,10 +92,10 @@ ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
     int custom_gct = palette && depth > 0;
     gif->depth = abs(depth) > 1 ? abs(depth) : 2;
 
-    write(gif->fd, (uint8_t []) {0xF0 | (gif->depth-1), (uint8_t) bgindex, 0x00}, 3);
+    safe_write(gif->fd, (uint8_t[]) {0xF0 | (gif->depth - 1), (uint8_t) bgindex, 0x00}, 3);
 
     if (custom_gct) {
-        write(gif->fd, palette, 3 << gif->depth);
+        safe_write(gif->fd, palette, 3 << gif->depth);
     } else if (gif->depth <= 4) {
         write_and_store(store_gct, palette, gif->fd, vga, 3 << gif->depth);
     } else {
@@ -95,7 +103,7 @@ ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
         for (int r = 0, i = 0x10; r < 6 && i < (1 << gif->depth); r++) {
             for (int g = 0; g < 6 && i < (1 << gif->depth); g++) {
                 for (int b = 0; b < 6 && i < (1 << gif->depth); b++, i++) {
-                    uint8_t rgb[3] = {r*51, g*51, b*51};
+                    uint8_t rgb[3] = {r * 51, g * 51, b * 51};
                     write_and_store(store_gct, palette, gif->fd, rgb, 3);
                 }
             }
@@ -112,12 +120,12 @@ static void put_key(ge_GIF *gif, uint16_t key, int key_size) {
     int bit_offset = gif->offset % 8;
     gif->partial |= ((uint32_t) key) << bit_offset;
     int bits_to_write = bit_offset + key_size;
-    
+
     while (bits_to_write >= 8) {
         gif->buffer[byte_offset++] = gif->partial & 0xFF;
         if (byte_offset == 0xFF) {
-            write(gif->fd, "\xFF", 1);
-            write(gif->fd, gif->buffer, 0xFF);
+            safe_write(gif->fd, "\xFF", 1);
+            safe_write(gif->fd, gif->buffer, 0xFF);
             byte_offset = 0;
         }
         gif->partial >>= 8;
@@ -131,10 +139,10 @@ static void end_key(ge_GIF *gif) {
     if (gif->offset % 8)
         gif->buffer[byte_offset++] = gif->partial & 0xFF;
     if (byte_offset) {
-        write(gif->fd, (uint8_t []) {byte_offset}, 1);
-        write(gif->fd, gif->buffer, byte_offset);
+        safe_write(gif->fd, (uint8_t[]) {byte_offset}, 1);
+        safe_write(gif->fd, gif->buffer, byte_offset);
     }
-    write(gif->fd, "\0", 1);
+    safe_write(gif->fd, "\0", 1);
     gif->offset = gif->partial = 0;
 }
 
@@ -143,22 +151,22 @@ static void put_image(ge_GIF *gif, uint16_t w, uint16_t h, uint16_t x, uint16_t 
     Node *node, *root;
     int degree = 1 << gif->depth;
 
-    write(gif->fd, ",", 1);
+    safe_write(gif->fd, ",", 1);
     write_num(gif->fd, x);
     write_num(gif->fd, y);
     write_num(gif->fd, w);
     write_num(gif->fd, h);
-    write(gif->fd, (uint8_t []) {0x00, gif->depth}, 2);
-    
+    safe_write(gif->fd, (uint8_t[]) {0x00, gif->depth}, 2);
+
     root = node = new_trie(degree, &nkeys);
     key_size = gif->depth + 1;
     put_key(gif, degree, key_size);
 
-    for (int i = y; i < y+h; i++) {
-        for (int j = x; j < x+w; j++) {
-            uint8_t pixel = gif->frame[i*gif->w+j] & (degree - 1);
+    for (int i = y; i < y + h; i++) {
+        for (int j = x; j < x + w; j++) {
+            uint8_t pixel = gif->frame[i * gif->w + j] & (degree - 1);
             Node *child = node->children[pixel];
-            
+
             if (child) {
                 node = child;
             } else {
@@ -176,7 +184,7 @@ static void put_image(ge_GIF *gif, uint16_t w, uint16_t h, uint16_t x, uint16_t 
             }
         }
     }
-    
+
     put_key(gif, node->key, key_size);
     put_key(gif, degree + 1, key_size);
     end_key(gif);
@@ -185,7 +193,7 @@ static void put_image(ge_GIF *gif, uint16_t w, uint16_t h, uint16_t x, uint16_t 
 
 static int get_bbox(ge_GIF *gif, uint16_t *w, uint16_t *h, uint16_t *x, uint16_t *y) {
     int left = gif->w, right = 0, top = gif->h, bottom = 0;
-    
+
     for (int i = 0, k = 0; i < gif->h; i++) {
         for (int j = 0; j < gif->w; j++, k++) {
             uint8_t back = gif->bgindex >= 0 ? gif->bgindex : gif->back[k];
@@ -197,7 +205,7 @@ static int get_bbox(ge_GIF *gif, uint16_t *w, uint16_t *h, uint16_t *x, uint16_t
             }
         }
     }
-    
+
     if (left != gif->w && top != gif->h) {
         *x = left; *y = top;
         *w = right - left + 1;
@@ -211,10 +219,10 @@ void ge_add_frame(ge_GIF *gif, uint16_t delay) {
     uint16_t w, h, x, y;
 
     if (delay || (gif->bgindex >= 0)) {
-        write(gif->fd, (uint8_t []) {'!', 0xF9, 0x04, 
-                                    ((gif->bgindex >= 0 ? 2 : 1) << 2) + 1}, 4);
+        safe_write(gif->fd, (uint8_t[]) {'!', 0xF9, 0x04,
+                                         ((gif->bgindex >= 0 ? 2 : 1) << 2) + 1}, 4);
         write_num(gif->fd, delay);
-        write(gif->fd, (uint8_t []) {(uint8_t) gif->bgindex, 0x00}, 2);
+        safe_write(gif->fd, (uint8_t[]) {(uint8_t) gif->bgindex, 0x00}, 2);
     }
 
     if (gif->nframes == 0) {
@@ -225,7 +233,7 @@ void ge_add_frame(ge_GIF *gif, uint16_t delay) {
 
     put_image(gif, w, h, x, y);
     gif->nframes++;
-    
+
     if (gif->bgindex < 0) {
         uint8_t *tmp = gif->back;
         gif->back = gif->frame;
@@ -234,7 +242,7 @@ void ge_add_frame(ge_GIF *gif, uint16_t delay) {
 }
 
 void ge_close_gif(ge_GIF* gif) {
-    write(gif->fd, ";", 1);
+    safe_write(gif->fd, ";", 1);
     close(gif->fd);
     free(gif);
 }
