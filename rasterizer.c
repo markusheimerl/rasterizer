@@ -197,46 +197,121 @@ void render_frame(double *image, unsigned char *output_image, int frame_num,
     }
 }
 
+#include <math.h>
+#include "gifenc.h"
+
+#define PALETTE_SIZE 8
+
+// Define a comprehensive palette with finer colors particularly for red
+uint8_t palette[PALETTE_SIZE][3] = {
+    {0x00, 0x00, 0x00}, // Black
+    {0xFF, 0x00, 0x00}, // Red
+    {0x00, 0xFF, 0x00}, // Green
+    {0x00, 0x00, 0xFF}, // Blue
+    {0xFF, 0xFF, 0x00}, // Yellow
+    {0xFF, 0x00, 0xFF}, // Magenta
+    {0x00, 0xFF, 0xFF}, // Cyan
+    {0xFF, 0xFF, 0xFF}  // White
+};
+
+// Function to find the nearest color in the palette
+uint8_t find_nearest_color(uint8_t *rgb) {
+    uint8_t nearest_color = 0;
+    double min_distance = DBL_MAX;
+    for (int i = 0; i < PALETTE_SIZE; i++) {
+        double distance = sqrt(
+            pow((double)(rgb[0] - palette[i][0]), 2.0) +
+            pow((double)(rgb[1] - palette[i][1]), 2.0) +
+            pow((double)(rgb[2] - palette[i][2]), 2.0)
+        );
+        if (distance < min_distance) {
+            min_distance = distance;
+            nearest_color = i;
+        }
+    }
+    return nearest_color;
+}
+
+void floyd_steinberg_dithering(unsigned char *input, uint8_t *output, int width, int height) {
+    // Create a temporary buffer to store the error diffusion
+    double (*error_buffer)[3] = calloc(width * height, sizeof(*error_buffer));
+    
+    // Copy input to floating-point buffer for error diffusion
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            for (int c = 0; c < 3; c++) {
+                error_buffer[y * width + x][c] = input[(y * width + x) * 3 + c];
+            }
+        }
+    }
+
+    // Apply Floyd-Steinberg dithering
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            // Get pixel value with accumulated error
+            uint8_t pixel[3];
+            for (int c = 0; c < 3; c++) {
+                double value = error_buffer[y * width + x][c];
+                pixel[c] = (uint8_t)fmax(0, fmin(255, round(value)));
+            }
+
+            // Find nearest palette color
+            uint8_t color_index = find_nearest_color(pixel);
+            output[y * width + x] = color_index;
+
+            // Calculate quantization error
+            double error[3];
+            for (int c = 0; c < 3; c++) {
+                error[c] = error_buffer[y * width + x][c] - palette[color_index][c];
+            }
+
+            // Distribute error to neighboring pixels
+            if (x + 1 < width) {
+                for (int c = 0; c < 3; c++)
+                    error_buffer[y * width + (x + 1)][c] += error[c] * 7.0 / 16.0;
+            }
+            if (y + 1 < height) {
+                if (x > 0) {
+                    for (int c = 0; c < 3; c++)
+                        error_buffer[(y + 1) * width + (x - 1)][c] += error[c] * 3.0 / 16.0;
+                }
+                for (int c = 0; c < 3; c++)
+                    error_buffer[(y + 1) * width + x][c] += error[c] * 5.0 / 16.0;
+                if (x + 1 < width) {
+                    for (int c = 0; c < 3; c++)
+                        error_buffer[(y + 1) * width + (x + 1)][c] += error[c] * 1.0 / 16.0;
+                }
+            }
+        }
+    }
+
+    free(error_buffer);
+}
+
 int main() {
     parse_obj_file("drone.obj");
     texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
     double *image = malloc(WIDTH * HEIGHT * 4 * sizeof(double));
     unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
 
-    // FFmpeg initialization
-    AVFormatContext *av_format_ctx = NULL;
-    avformat_alloc_output_context2(&av_format_ctx, NULL, NULL, "output_rasterizer.mp4");
-    AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    AVStream *video_stream = avformat_new_stream(av_format_ctx, NULL);
-    AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
-
-    // Set basic codec parameters
-    codec_ctx->bit_rate = 400000;
-    codec_ctx->width = WIDTH;
-    codec_ctx->height = HEIGHT;
-    video_stream->time_base = (AVRational){1, 30};
-    codec_ctx->time_base = video_stream->time_base;
-    codec_ctx->gop_size = 10;
-    codec_ctx->max_b_frames = 1;
-    codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-
-    avcodec_open2(codec_ctx, codec, NULL);
-    avcodec_parameters_from_context(video_stream->codecpar, codec_ctx);
-    avio_open(&av_format_ctx->pb, "output_rasterizer.mp4", AVIO_FLAG_WRITE);
-    int ret = avformat_write_header(av_format_ctx, NULL);
-    if (ret < 0) {
-        fprintf(stderr, "Error writing header\n");
-        return 1;
-    }
-
-    // Setup frame and conversion context
-    struct SwsContext *sws_ctx = sws_getContext(WIDTH, HEIGHT, AV_PIX_FMT_RGB24,
-        WIDTH, HEIGHT, AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
-    AVFrame *frame = av_frame_alloc();
-    frame->format = codec_ctx->pix_fmt;
-    frame->width = WIDTH;
-    frame->height = HEIGHT;
-    av_image_alloc(frame->data, frame->linesize, WIDTH, HEIGHT, codec_ctx->pix_fmt, 32);
+    // Initialize GIF with a proper palette
+    ge_GIF *gif = ge_new_gif(
+        "output_rasterizer.gif",
+        WIDTH, HEIGHT,
+        (uint8_t[]) {
+            0x00, 0x00, 0x00,
+            0xFF, 0x00, 0x00,
+            0x00, 0xFF, 0x00,
+            0x00, 0x00, 0xFF,
+            0xFF, 0xFF, 0x00,
+            0xFF, 0x00, 0xFF,
+            0x00, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF
+        },
+        3, // log2 of # of colors
+        -1,
+        0
+    );
 
     // Animation parameters
     double scale_factor = 1.0;
@@ -246,39 +321,19 @@ int main() {
     // Main rendering loop
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
-        
+
         render_frame(image, output_image, frame_num, scale_factor, translation, angle_per_frame);
 
-        // Encode frame
-        const uint8_t *inData[1] = {output_image};
-        int inLinesize[1] = {3 * WIDTH};
-        sws_scale(sws_ctx, inData, inLinesize, 0, HEIGHT, frame->data, frame->linesize);
-        frame->pts = frame_num;
-        
-        AVPacket pkt;
-        av_init_packet(&pkt);
-        avcodec_send_frame(codec_ctx, frame);
-        while (avcodec_receive_packet(codec_ctx, &pkt) >= 0) {
-            av_packet_rescale_ts(&pkt, codec_ctx->time_base, video_stream->time_base);
-            pkt.stream_index = video_stream->index;
-            av_interleaved_write_frame(av_format_ctx, &pkt);
-            av_packet_unref(&pkt);
-        }
+        // Apply dithering and convert to indexed colors
+        floyd_steinberg_dithering(output_image, gif->frame, WIDTH, HEIGHT);
+
+        // Add frame to GIF with 16ms delay per frame (about 60fps)
+        ge_add_frame(gif, 6);
     }
 
-    // Flush encoder
-    avcodec_send_frame(codec_ctx, NULL);
-    AVPacket pkt;
-    while (avcodec_receive_packet(codec_ctx, &pkt) >= 0) {
-        av_packet_rescale_ts(&pkt, codec_ctx->time_base, video_stream->time_base);
-        pkt.stream_index = video_stream->index;
-        av_interleaved_write_frame(av_format_ctx, &pkt);
-        av_packet_unref(&pkt);
-    }
+    // Finalize and close GIF
+    ge_close_gif(gif);
 
-    av_write_trailer(av_format_ctx);
-    avio_closep(&av_format_ctx->pb);
-    avformat_free_context(av_format_ctx);
     free(image);
     free(output_image);
     stbi_image_free(texture_data);
