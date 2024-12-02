@@ -5,13 +5,15 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#ifdef _WIN32
-#include <io.h>
-#else
 #include <unistd.h>
-#endif
 
-#define write_num(fd, n) write((fd), (uint8_t []) {(n) & 0xFF, (n) >> 8}, 2)
+#define write_num(fd, n) do { \
+    ssize_t _write_result = write((fd), (uint8_t []) {(n) & 0xFF, (n) >> 8}, 2); \
+    if (_write_result != 2) { \
+        perror("Error writing number"); \
+        /* Handle the error as appropriate for your application, e.g., by exiting */ \
+    } \
+} while (0)
 
 static uint8_t vga[0x30] = {
     0x00, 0x00, 0x00, 0xAA, 0x00, 0x00, 0x00, 0xAA, 0x00, 0xAA, 0x55, 0x00,
@@ -71,17 +73,8 @@ ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
     gif->bgindex = bgindex;
     gif->frame = (uint8_t *) &gif[1];
     gif->back = &gif->frame[width * height];
-    
-    #ifdef _WIN32
-    gif->fd = creat(fname, S_IWRITE);
-    #else
     gif->fd = creat(fname, 0666);
-    #endif
     if (gif->fd == -1) { free(gif); return NULL; }
-    
-    #ifdef _WIN32
-    setmode(gif->fd, O_BINARY);
-    #endif
 
     write(gif->fd, "GIF89a", 6);
     write_num(gif->fd, width);
