@@ -3,16 +3,10 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
-// gcc -O3 rasterizer.c -lm -lavformat -lavcodec -lavutil -lswscale && ./a.out
+// gcc -O3 rasterizer.c gifenc.c -lm && ./a.out
 #include <limits.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-
-// Include FFmpeg headers
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
-#include <libavutil/imgutils.h>
 
 // Constants
 #define WIDTH 640
