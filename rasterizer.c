@@ -149,6 +149,54 @@ void draw_triangle(double *image, const double pts[3][4], const double uv[3][2])
     }
 }
 
+void render_frame(double *image, unsigned char *output_image, int frame_num, 
+                 double scale_factor, double translation[3], double angle_per_frame) {
+    // Clear image buffer
+    memset(image, 0, WIDTH * HEIGHT * 4 * sizeof(double));
+    for (int i = 0; i < WIDTH * HEIGHT; i++) {
+        image[i * 4 + 3] = DBL_MAX;
+    }
+
+    // Transform vertices
+    for (int i = 0; i < num_vertices; i++) {
+        vertices[i][0] = initial_vertices[i][0] * scale_factor;
+        vertices[i][1] = -initial_vertices[i][1] * scale_factor;
+        vertices[i][2] = initial_vertices[i][2] * scale_factor;
+        rotate_y(frame_num * angle_per_frame, vertices[i]);
+        vertices[i][0] += translation[0];
+        vertices[i][1] += translation[1];
+        vertices[i][2] += translation[2];
+    }
+
+    // Render triangles
+    for (int i = 0; i < num_triangles; i++) {
+        double verts[3][4], uv_coords[3][2];
+        double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
+        double aspect = (double)WIDTH / HEIGHT;
+        
+        for (int j = 0; j < 3; j++) {
+            double *vertex = vertices[triangles[i][j]];
+            double z = fmax(vertex[2], NEAR_PLANE);
+            verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
+            verts[j][1] = (f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
+            verts[j][2] = z;
+            uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
+            uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
+        }
+        draw_triangle(image, verts, uv_coords);
+    }
+
+    // Convert to output format
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            for (int c = 0; c < 3; c++) {
+                output_image[(y * WIDTH + x) * 3 + c] = 
+                    (unsigned char)(fmax(0.0, fmin(1.0, image[(y * WIDTH + x) * 4 + c])) * 255);
+            }
+        }
+    }
+}
+
 int main() {
     parse_obj_file("drone.obj");
     texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
@@ -198,44 +246,8 @@ int main() {
     // Main rendering loop
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
-        memset(image, 0, WIDTH * HEIGHT * 4 * sizeof(double));
-        for (int i = 0; i < WIDTH * HEIGHT; i++) image[i * 4 + 3] = DBL_MAX;
-
-        // Transform vertices
-        for (int i = 0; i < num_vertices; i++) {
-            vertices[i][0] = initial_vertices[i][0] * scale_factor;
-            vertices[i][1] = -initial_vertices[i][1] * scale_factor;
-            vertices[i][2] = initial_vertices[i][2] * scale_factor;
-            rotate_y(frame_num * angle_per_frame, vertices[i]);
-            vertices[i][0] += translation[0];
-            vertices[i][1] += translation[1];
-            vertices[i][2] += translation[2];
-        }
-
-        // Render triangles
-        for (int i = 0; i < num_triangles; i++) {
-            double verts[3][4], uv_coords[3][2];
-            double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
-            double aspect = (double)WIDTH / HEIGHT;
-            
-            for (int j = 0; j < 3; j++) {
-                double *vertex = vertices[triangles[i][j]];
-                double z = fmax(vertex[2], NEAR_PLANE);
-                verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
-                verts[j][1] = (f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
-                verts[j][2] = z;
-                uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
-                uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
-            }
-            draw_triangle(image, verts, uv_coords);
-        }
-
-        // Convert to output format
-        for (int y = 0; y < HEIGHT; y++)
-            for (int x = 0; x < WIDTH; x++)
-                for (int c = 0; c < 3; c++)
-                    output_image[(y * WIDTH + x) * 3 + c] = 
-                        (unsigned char)(fmax(0.0, fmin(1.0, image[(y * WIDTH + x) * 4 + c])) * 255);
+        
+        render_frame(image, output_image, frame_num, scale_factor, translation, angle_per_frame);
 
         // Encode frame
         const uint8_t *inData[1] = {output_image};
