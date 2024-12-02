@@ -19,6 +19,9 @@
 #define HEIGHT 480
 #define FRAMES 60
 #define ASPECT_RATIO ((double)WIDTH / (double)HEIGHT)
+#define FOV_Y 60.0
+#define NEAR_PLANE 0.1
+#define FAR_PLANE 100.0
 
 // Vector macros
 #define VEC_SUB(a,b,r) { (r)[0]=(a)[0]-(b)[0]; (r)[1]=(a)[1]-(b)[1]; (r)[2]=(a)[2]-(b)[2]; }
@@ -281,12 +284,27 @@ int main() {
         for (int i = 0; i < num_triangles; i++) {
             double verts[3][4];
             double uv_coords[3][2];
+            
+            // Calculate perspective projection constants
+            double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
+            double aspect = (double)WIDTH / HEIGHT;
+            
             for (int j = 0; j < 3; j++) {
                 double *vertex = vertices[triangles[i][j]];
-                double inv_z = 1.0 / vertex[2]; // Correct perspective placement
-                verts[j][0] = -vertex[0] * inv_z * WIDTH / (2.0 * ASPECT_RATIO) + WIDTH / 2.0;
-                verts[j][1] = vertex[1] * inv_z * HEIGHT / 2.0 + HEIGHT / 2.0;
-                verts[j][2] = vertex[2];
+                
+                // Perspective projection matrix multiplication
+                double z = vertex[2];
+                if (z < NEAR_PLANE) z = NEAR_PLANE;  // Prevent division by zero
+                
+                // Apply perspective projection
+                double x_projected = -(f / aspect) * vertex[0] / z;
+                double y_projected = f * vertex[1] / z;
+                
+                // Convert to screen coordinates
+                verts[j][0] = (x_projected + 1.0) * WIDTH / 2.0;
+                verts[j][1] = (y_projected + 1.0) * HEIGHT / 2.0;
+                verts[j][2] = z;  // Store z for depth testing
+                
                 uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
                 uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
             }
