@@ -190,7 +190,6 @@ void render_frame(double *image, unsigned char *output_image, int frame_num,
 #include <math.h>
 #include "gifenc.h"
 
-
 // Function to find the nearest color in the palette
 uint8_t find_nearest_color(uint8_t *rgb, uint8_t palette[8][3]) {
     uint8_t nearest_color = 0;
@@ -284,14 +283,7 @@ int main() {
     };
 
     // Initialize GIF with a proper palette
-    ge_GIF *gif = ge_new_gif(
-        "output_rasterizer.gif",
-        WIDTH, HEIGHT,
-        (uint8_t*)palette,
-        3, // log2 of # of colors
-        -1,
-        0
-    );
+    ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, (uint8_t*)palette, 3, -1, 0);
 
     // Animation parameters
     double scale_factor = 1.0;
