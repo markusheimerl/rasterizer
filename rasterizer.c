@@ -3,7 +3,7 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
-// gcc -O3 rasterizer.c gifenc.c -lm && ./a.out
+// gcc -O3 rasterizer.c -lm && ./a.out
 #include <limits.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -288,16 +288,7 @@ int main() {
     ge_GIF *gif = ge_new_gif(
         "output_rasterizer.gif",
         WIDTH, HEIGHT,
-        (uint8_t[]) {
-            0x00, 0x00, 0x00,
-            0xFF, 0x00, 0x00,
-            0x00, 0xFF, 0x00,
-            0x00, 0x00, 0xFF,
-            0xFF, 0xFF, 0x00,
-            0xFF, 0x00, 0xFF,
-            0x00, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF
-        },
+        (uint8_t*)palette,
         3, // log2 of # of colors
         -1,
         0
