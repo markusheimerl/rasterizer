@@ -190,25 +190,12 @@ void render_frame(double *image, unsigned char *output_image, int frame_num,
 #include <math.h>
 #include "gifenc.h"
 
-#define PALETTE_SIZE 8
-
-// Define a comprehensive palette with finer colors particularly for red
-uint8_t palette[PALETTE_SIZE][3] = {
-    {0x00, 0x00, 0x00}, // Black
-    {0xFF, 0x00, 0x00}, // Red
-    {0x00, 0xFF, 0x00}, // Green
-    {0x00, 0x00, 0xFF}, // Blue
-    {0xFF, 0xFF, 0x00}, // Yellow
-    {0xFF, 0x00, 0xFF}, // Magenta
-    {0x00, 0xFF, 0xFF}, // Cyan
-    {0xFF, 0xFF, 0xFF}  // White
-};
 
 // Function to find the nearest color in the palette
-uint8_t find_nearest_color(uint8_t *rgb) {
+uint8_t find_nearest_color(uint8_t *rgb, uint8_t palette[8][3]) {
     uint8_t nearest_color = 0;
     double min_distance = DBL_MAX;
-    for (int i = 0; i < PALETTE_SIZE; i++) {
+    for (int i = 0; i < 8; i++) {
         double distance = sqrt(
             pow((double)(rgb[0] - palette[i][0]), 2.0) +
             pow((double)(rgb[1] - palette[i][1]), 2.0) +
@@ -222,7 +209,7 @@ uint8_t find_nearest_color(uint8_t *rgb) {
     return nearest_color;
 }
 
-void floyd_steinberg_dithering(unsigned char *input, uint8_t *output, int width, int height) {
+void floyd_steinberg_dithering(unsigned char *input, uint8_t *output, int width, int height, uint8_t palette[8][3]) {
     // Create a temporary buffer to store the error diffusion
     double (*error_buffer)[3] = calloc(width * height, sizeof(*error_buffer));
     
@@ -246,7 +233,7 @@ void floyd_steinberg_dithering(unsigned char *input, uint8_t *output, int width,
             }
 
             // Find nearest palette color
-            uint8_t color_index = find_nearest_color(pixel);
+            uint8_t color_index = find_nearest_color(pixel, palette);
             output[y * width + x] = color_index;
 
             // Calculate quantization error
@@ -284,6 +271,18 @@ int main() {
     double *image = malloc(WIDTH * HEIGHT * 4 * sizeof(double));
     unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
 
+    // Define a comprehensive palette with finer colors particularly for red
+    uint8_t palette[8][3] = {
+        {0x00, 0x00, 0x00}, // Black
+        {0xFF, 0x00, 0x00}, // Red
+        {0x00, 0xFF, 0x00}, // Green
+        {0x00, 0x00, 0xFF}, // Blue
+        {0xFF, 0xFF, 0x00}, // Yellow
+        {0xFF, 0x00, 0xFF}, // Magenta
+        {0x00, 0xFF, 0xFF}, // Cyan
+        {0xFF, 0xFF, 0xFF}  // White
+    };
+
     // Initialize GIF with a proper palette
     ge_GIF *gif = ge_new_gif(
         "output_rasterizer.gif",
@@ -306,7 +305,7 @@ int main() {
         render_frame(image, output_image, frame_num, scale_factor, translation, angle_per_frame);
 
         // Apply dithering and convert to indexed colors
-        floyd_steinberg_dithering(output_image, gif->frame, WIDTH, HEIGHT);
+        floyd_steinberg_dithering(output_image, gif->frame, WIDTH, HEIGHT, palette);
 
         // Add frame to GIF with 16ms delay per frame (about 60fps)
         ge_add_frame(gif, 6);
