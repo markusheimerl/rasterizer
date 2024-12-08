@@ -2,9 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include "gifenc.h"
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "gif.h"
+#include "bmp.h"
 
 // gcc -O3 rasterizer.c -lm && ./a.out
 
@@ -219,7 +218,7 @@ void render_frame(uint8_t *image, int frame_num,
 
 int main() {
     parse_obj_file("drone.obj");
-    texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
+    texture_data = load_bmp("drone.bmp", &texture_width, &texture_height, &texture_channels);
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
 
     uint8_t palette[8 * 3] = {
@@ -247,6 +246,6 @@ int main() {
 
     ge_close_gif(gif);
     free(image);
-    stbi_image_free(texture_data);
+    free(texture_data);
     return 0;
 }
