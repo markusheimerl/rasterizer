@@ -208,7 +208,10 @@ uint8_t find_nearest_color(uint8_t *rgb, uint8_t palette[8][3]) {
     return nearest_color;
 }
 
-void floyd_steinberg_dithering(unsigned char *input, uint8_t *output, int width, int height, uint8_t palette[8][3]) {
+void floyd_steinberg_dithering(unsigned char *input, ge_GIF *gif, uint8_t palette[8][3]) {
+    int width = gif->w;
+    int height = gif->h;
+
     // Create a temporary buffer to store the error diffusion
     double (*error_buffer)[3] = calloc(width * height, sizeof(*error_buffer));
     
@@ -233,7 +236,7 @@ void floyd_steinberg_dithering(unsigned char *input, uint8_t *output, int width,
 
             // Find nearest palette color
             uint8_t color_index = find_nearest_color(pixel, palette);
-            output[y * width + x] = color_index;
+            gif->frame[y * width + x] = color_index;
 
             // Calculate quantization error
             double error[3];
@@ -297,7 +300,7 @@ int main() {
         render_frame(image, output_image, frame_num, scale_factor, translation, angle_per_frame);
 
         // Apply dithering and convert to indexed colors
-        floyd_steinberg_dithering(output_image, gif->frame, WIDTH, HEIGHT, palette);
+        floyd_steinberg_dithering(output_image, gif, palette);
 
         // Add frame to GIF with 16ms delay per frame (about 60fps)
         ge_add_frame(gif, 6);
