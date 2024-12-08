@@ -139,7 +139,7 @@ void draw_triangle(double *image, const double pts[3][4], const double uv[3][2])
     }
 }
 
-void render_frame(double *image, unsigned char *output_image, int frame_num, 
+void render_frame(double *image, int frame_num, 
                  double scale_factor, double translation[3], double angle_per_frame) {
     // Clear image buffer
     memset(image, 0, WIDTH * HEIGHT * 4 * sizeof(double));
@@ -175,16 +175,6 @@ void render_frame(double *image, unsigned char *output_image, int frame_num,
         }
         draw_triangle(image, verts, uv_coords);
     }
-
-    // Convert to output format
-    for (int y = 0; y < HEIGHT; y++) {
-        for (int x = 0; x < WIDTH; x++) {
-            for (int c = 0; c < 3; c++) {
-                output_image[(y * WIDTH + x) * 3 + c] = 
-                    (unsigned char)(fmax(0.0, fmin(1.0, image[(y * WIDTH + x) * 4 + c])) * 255);
-            }
-        }
-    }
 }
 
 #include <math.h>
@@ -208,18 +198,18 @@ uint8_t find_nearest_color(uint8_t *rgb, uint8_t palette[8][3]) {
     return nearest_color;
 }
 
-void floyd_steinberg_dithering(unsigned char *input, ge_GIF *gif, uint8_t palette[8][3]) {
+void floyd_steinberg_dithering(double *input, ge_GIF *gif, uint8_t palette[8][3]) {
     int width = gif->w;
     int height = gif->h;
 
     // Create a temporary buffer to store the error diffusion
     double (*error_buffer)[3] = calloc(width * height, sizeof(*error_buffer));
     
-    // Copy input to floating-point buffer for error diffusion
+    // Copy input to error buffer, converting from doubles (0-1) to byte range (0-255)
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             for (int c = 0; c < 3; c++) {
-                error_buffer[y * width + x][c] = input[(y * width + x) * 3 + c];
+                error_buffer[y * width + x][c] = fmax(0.0, fmin(1.0, input[(y * width + x) * 4 + c])) * 255.0;
             }
         }
     }
@@ -267,13 +257,14 @@ void floyd_steinberg_dithering(unsigned char *input, ge_GIF *gif, uint8_t palett
     free(error_buffer);
 }
 
+
 int main() {
     parse_obj_file("drone.obj");
     texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
+    
+    // image buffer includes RGB + depth (4 doubles per pixel)
     double *image = malloc(WIDTH * HEIGHT * 4 * sizeof(double));
-    unsigned char *output_image = malloc(WIDTH * HEIGHT * 3);
 
-    // Define a comprehensive palette with finer colors particularly for red
     uint8_t palette[8][3] = {
         {0x00, 0x00, 0x00}, // Black
         {0xFF, 0x00, 0x00}, // Red
@@ -285,32 +276,26 @@ int main() {
         {0xFF, 0xFF, 0xFF}  // White
     };
 
-    // Initialize GIF with a proper palette
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, (uint8_t*)palette, 3, -1, 0);
 
-    // Animation parameters
     double scale_factor = 1.0;
     double translation[3] = {0, 1, 3};
     double angle_per_frame = (2.0 * M_PI) / FRAMES;
 
-    // Main rendering loop
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
+        
+        // Render the 3D scene to image buffer
+        render_frame(image, frame_num, scale_factor, translation, angle_per_frame);
 
-        render_frame(image, output_image, frame_num, scale_factor, translation, angle_per_frame);
-
-        // Apply dithering and convert to indexed colors
-        floyd_steinberg_dithering(output_image, gif, palette);
-
-        // Add frame to GIF with 16ms delay per frame (about 60fps)
+        // Apply dithering directly to gif frame
+        floyd_steinberg_dithering(image, gif, palette);
+        
         ge_add_frame(gif, 6);
     }
 
-    // Finalize and close GIF
     ge_close_gif(gif);
-
     free(image);
-    free(output_image);
     stbi_image_free(texture_data);
     return 0;
 }
