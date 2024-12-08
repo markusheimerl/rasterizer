@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
-#include <float.h>
 #include <string.h>
-// gcc -O3 rasterizer.c -lm && ./a.out
 #include <limits.h>
+#include "gifenc.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+
+// gcc -O3 rasterizer.c -lm && ./a.out
 
 // Constants
 #define WIDTH 640
@@ -217,14 +217,9 @@ void render_frame(uint8_t *image, int frame_num,
     free(depth_buffer);
 }
 
-#include <math.h>
-#include "gifenc.h"
-
 int main() {
     parse_obj_file("drone.obj");
     texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
-    
-    // image buffer is now just RGB (3 bytes per pixel)
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
 
     uint8_t palette[8 * 3] = {
@@ -246,9 +241,7 @@ int main() {
 
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
-        
         render_frame(image, frame_num, scale_factor, translation, angle_per_frame);
-        
         ge_add_frame(gif, image, 6);
     }
 

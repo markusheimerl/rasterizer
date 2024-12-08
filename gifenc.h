@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <math.h>
+#include <float.h>
 
 typedef struct ge_GIF {
     uint16_t w, h;
