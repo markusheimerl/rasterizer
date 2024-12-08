@@ -20,6 +20,7 @@ typedef struct ge_GIF {
     uint8_t *frame, *back;
     uint32_t partial;
     uint8_t buffer[0xFF];
+    uint8_t palette[8 * 3];
 } ge_GIF;
 
 #define write_num(fd, n) do { \
@@ -98,6 +99,7 @@ ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
     gif->back = &gif->frame[width * height];
     gif->fd = creat(fname, 0666);
     if (gif->fd == -1) { free(gif); return NULL; }
+    if (palette) memcpy(gif->palette, palette, 8 * 3);
 
     safe_write(gif->fd, "GIF89a", 6);
     write_num(gif->fd, width);

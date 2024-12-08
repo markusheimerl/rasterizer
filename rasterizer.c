@@ -220,25 +220,7 @@ void render_frame(uint8_t *image, int frame_num,
 #include <math.h>
 #include "gifenc.h"
 
-// Function to find the nearest color in the palette
-uint8_t find_nearest_color(uint8_t *rgb, uint8_t palette[8][3]) {
-    uint8_t nearest_color = 0;
-    double min_distance = DBL_MAX;
-    for (int i = 0; i < 8; i++) {
-        double distance = sqrt(
-            pow((double)(rgb[0] - palette[i][0]), 2.0) +
-            pow((double)(rgb[1] - palette[i][1]), 2.0) +
-            pow((double)(rgb[2] - palette[i][2]), 2.0)
-        );
-        if (distance < min_distance) {
-            min_distance = distance;
-            nearest_color = i;
-        }
-    }
-    return nearest_color;
-}
-
-void floyd_steinberg_dithering(uint8_t *input, ge_GIF *gif, uint8_t palette[8][3]) {
+void floyd_steinberg_dithering(uint8_t *input, ge_GIF *gif) {
     int width = gif->w;
     int height = gif->h;
 
@@ -262,12 +244,26 @@ void floyd_steinberg_dithering(uint8_t *input, ge_GIF *gif, uint8_t palette[8][3
                 pixel[c] = (uint8_t)fmax(0, fmin(255, round(error_buffer[y * width + x][c])));
             }
 
-            uint8_t color_index = find_nearest_color(pixel, palette);
-            gif->frame[y * width + x] = color_index;
+            // Find nearest color in palette
+            uint8_t nearest_color = 0;
+            double min_distance = DBL_MAX;
+            for (int i = 0; i < 8; i++) {
+                double distance = sqrt(
+                    pow((double)(pixel[0] - gif->palette[i * 3]), 2.0) +
+                    pow((double)(pixel[1] - gif->palette[i * 3 + 1]), 2.0) +
+                    pow((double)(pixel[2] - gif->palette[i * 3 + 2]), 2.0)
+                );
+                if (distance < min_distance) {
+                    min_distance = distance;
+                    nearest_color = i;
+                }
+            }
+
+            gif->frame[y * width + x] = nearest_color;
 
             double error[3];
             for (int c = 0; c < 3; c++) {
-                error[c] = error_buffer[y * width + x][c] - palette[color_index][c];
+                error[c] = error_buffer[y * width + x][c] - gif->palette[nearest_color * 3 + c];
             }
 
             if (x + 1 < width) {
@@ -300,18 +296,18 @@ int main() {
     // image buffer is now just RGB (3 bytes per pixel)
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
 
-    uint8_t palette[8][3] = {
-        {0x00, 0x00, 0x00}, // Black
-        {0xFF, 0x00, 0x00}, // Red
-        {0x00, 0xFF, 0x00}, // Green
-        {0x00, 0x00, 0xFF}, // Blue
-        {0xFF, 0xFF, 0x00}, // Yellow
-        {0xFF, 0x00, 0xFF}, // Magenta
-        {0x00, 0xFF, 0xFF}, // Cyan
-        {0xFF, 0xFF, 0xFF}  // White
+    uint8_t palette[8 * 3] = {
+        0x00, 0x00, 0x00, // Black
+        0xFF, 0x00, 0x00, // Red
+        0x00, 0xFF, 0x00, // Green
+        0x00, 0x00, 0xFF, // Blue
+        0xFF, 0xFF, 0x00, // Yellow
+        0xFF, 0x00, 0xFF, // Magenta
+        0x00, 0xFF, 0xFF, // Cyan
+        0xFF, 0xFF, 0xFF  // White
     };
 
-    ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, (uint8_t*)palette, 3, -1, 0);
+    ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, palette, 3, -1, 0);
 
     double scale_factor = 1.0;
     double translation[3] = {0, 1, 3};
@@ -321,7 +317,7 @@ int main() {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
         
         render_frame(image, frame_num, scale_factor, translation, angle_per_frame);
-        floyd_steinberg_dithering(image, gif, palette);
+        floyd_steinberg_dithering(image, gif);
         
         ge_add_frame(gif, 6);
     }
