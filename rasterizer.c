@@ -139,13 +139,16 @@ void draw_triangle(double *image, const double pts[3][4], const double uv[3][2])
     }
 }
 
-void render_frame(double *image, int frame_num, 
+void render_frame(uint8_t *image, int frame_num, 
                  double scale_factor, double translation[3], double angle_per_frame) {
-    // Clear image buffer
-    memset(image, 0, WIDTH * HEIGHT * 4 * sizeof(double));
+    // Allocate depth buffer
+    double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        image[i * 4 + 3] = DBL_MAX;
+        depth_buffer[i] = DBL_MAX;
     }
+    
+    // Clear image buffer
+    memset(image, 0, WIDTH * HEIGHT * 3);
 
     // Transform vertices
     for (int i = 0; i < num_vertices; i++) {
@@ -173,8 +176,45 @@ void render_frame(double *image, int frame_num,
             uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
             uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
         }
-        draw_triangle(image, verts, uv_coords);
+        
+        // Modified draw_triangle call to use separate depth buffer
+        double bbox_min_x = fmin(fmin(verts[0][0], verts[1][0]), verts[2][0]);
+        double bbox_min_y = fmin(fmin(verts[0][1], verts[1][1]), verts[2][1]);
+        double bbox_max_x = fmax(fmax(verts[0][0], verts[1][0]), verts[2][0]);
+        double bbox_max_y = fmax(fmax(verts[0][1], verts[1][1]), verts[2][1]);
+
+        for (int x = (int)fmax(bbox_min_x, 0); x <= (int)fmin(bbox_max_x, WIDTH - 1); x++) {
+            for (int y = (int)fmax(bbox_min_y, 0); y <= (int)fmin(bbox_max_y, HEIGHT - 1); y++) {
+                double lambda[3];
+                double denominator = ((verts[1][1] - verts[2][1]) * (verts[0][0] - verts[2][0]) + 
+                                    (verts[2][0] - verts[1][0]) * (verts[0][1] - verts[2][1]));
+                lambda[0] = ((verts[1][1] - verts[2][1]) * (x - verts[2][0]) + 
+                           (verts[2][0] - verts[1][0]) * (y - verts[2][1])) / denominator;
+                lambda[1] = ((verts[2][1] - verts[0][1]) * (x - verts[2][0]) + 
+                           (verts[0][0] - verts[2][0]) * (y - verts[2][1])) / denominator;
+                lambda[2] = 1.0 - lambda[0] - lambda[1];
+
+                if (lambda[0] >= 0 && lambda[0] <= 1 && 
+                    lambda[1] >= 0 && lambda[1] <= 1 && 
+                    lambda[2] >= 0 && lambda[2] <= 1) {
+                    double z = lambda[0] * verts[0][2] + lambda[1] * verts[1][2] + lambda[2] * verts[2][2];
+                    int idx = y * WIDTH + x;
+                    if (z < depth_buffer[idx]) {
+                        depth_buffer[idx] = z;
+                        double u = lambda[0] * uv_coords[0][0] + lambda[1] * uv_coords[1][0] + lambda[2] * uv_coords[2][0];
+                        double v = lambda[0] * uv_coords[0][1] + lambda[1] * uv_coords[1][1] + lambda[2] * uv_coords[2][1];
+                        double color[3];
+                        sample_texture(u, v, color);
+                        image[idx * 3] = (uint8_t)(color[0] * 255.0);
+                        image[idx * 3 + 1] = (uint8_t)(color[1] * 255.0);
+                        image[idx * 3 + 2] = (uint8_t)(color[2] * 255.0);
+                    }
+                }
+            }
+        }
     }
+    
+    free(depth_buffer);
 }
 
 #include <math.h>
@@ -198,18 +238,18 @@ uint8_t find_nearest_color(uint8_t *rgb, uint8_t palette[8][3]) {
     return nearest_color;
 }
 
-void floyd_steinberg_dithering(double *input, ge_GIF *gif, uint8_t palette[8][3]) {
+void floyd_steinberg_dithering(uint8_t *input, ge_GIF *gif, uint8_t palette[8][3]) {
     int width = gif->w;
     int height = gif->h;
 
     // Create a temporary buffer to store the error diffusion
     double (*error_buffer)[3] = calloc(width * height, sizeof(*error_buffer));
     
-    // Copy input to error buffer, converting from doubles (0-1) to byte range (0-255)
+    // Copy input to error buffer
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             for (int c = 0; c < 3; c++) {
-                error_buffer[y * width + x][c] = fmax(0.0, fmin(1.0, input[(y * width + x) * 4 + c])) * 255.0;
+                error_buffer[y * width + x][c] = input[(y * width + x) * 3 + c];
             }
         }
     }
@@ -217,24 +257,19 @@ void floyd_steinberg_dithering(double *input, ge_GIF *gif, uint8_t palette[8][3]
     // Apply Floyd-Steinberg dithering
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            // Get pixel value with accumulated error
             uint8_t pixel[3];
             for (int c = 0; c < 3; c++) {
-                double value = error_buffer[y * width + x][c];
-                pixel[c] = (uint8_t)fmax(0, fmin(255, round(value)));
+                pixel[c] = (uint8_t)fmax(0, fmin(255, round(error_buffer[y * width + x][c])));
             }
 
-            // Find nearest palette color
             uint8_t color_index = find_nearest_color(pixel, palette);
             gif->frame[y * width + x] = color_index;
 
-            // Calculate quantization error
             double error[3];
             for (int c = 0; c < 3; c++) {
                 error[c] = error_buffer[y * width + x][c] - palette[color_index][c];
             }
 
-            // Distribute error to neighboring pixels
             if (x + 1 < width) {
                 for (int c = 0; c < 3; c++)
                     error_buffer[y * width + (x + 1)][c] += error[c] * 7.0 / 16.0;
@@ -262,8 +297,8 @@ int main() {
     parse_obj_file("drone.obj");
     texture_data = stbi_load("drone.png", &texture_width, &texture_height, &texture_channels, 3);
     
-    // image buffer includes RGB + depth (4 doubles per pixel)
-    double *image = malloc(WIDTH * HEIGHT * 4 * sizeof(double));
+    // image buffer is now just RGB (3 bytes per pixel)
+    uint8_t *image = malloc(WIDTH * HEIGHT * 3);
 
     uint8_t palette[8][3] = {
         {0x00, 0x00, 0x00}, // Black
@@ -285,10 +320,7 @@ int main() {
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
         
-        // Render the 3D scene to image buffer
         render_frame(image, frame_num, scale_factor, translation, angle_per_frame);
-
-        // Apply dithering directly to gif frame
         floyd_steinberg_dithering(image, gif, palette);
         
         ge_add_frame(gif, 6);
