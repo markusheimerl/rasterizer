@@ -232,8 +232,78 @@ static int get_bbox(ge_GIF *gif, uint16_t *w, uint16_t *h, uint16_t *x, uint16_t
     return 0;
 }
 
-void ge_add_frame(ge_GIF *gif, uint16_t delay) {
+void floyd_steinberg_dithering(uint8_t *input, ge_GIF *gif) {
+    int width = gif->w;
+    int height = gif->h;
+
+    // Create a temporary buffer to store the error diffusion
+    double (*error_buffer)[3] = calloc(width * height, sizeof(*error_buffer));
+    
+    // Copy input to error buffer
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            for (int c = 0; c < 3; c++) {
+                error_buffer[y * width + x][c] = input[(y * width + x) * 3 + c];
+            }
+        }
+    }
+
+    // Apply Floyd-Steinberg dithering
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            uint8_t pixel[3];
+            for (int c = 0; c < 3; c++) {
+                pixel[c] = (uint8_t)fmax(0, fmin(255, round(error_buffer[y * width + x][c])));
+            }
+
+            // Find nearest color in palette
+            uint8_t nearest_color = 0;
+            double min_distance = DBL_MAX;
+            for (int i = 0; i < 8; i++) {
+                double distance = sqrt(
+                    pow((double)(pixel[0] - gif->palette[i * 3]), 2.0) +
+                    pow((double)(pixel[1] - gif->palette[i * 3 + 1]), 2.0) +
+                    pow((double)(pixel[2] - gif->palette[i * 3 + 2]), 2.0)
+                );
+                if (distance < min_distance) {
+                    min_distance = distance;
+                    nearest_color = i;
+                }
+            }
+
+            gif->frame[y * width + x] = nearest_color;
+
+            double error[3];
+            for (int c = 0; c < 3; c++) {
+                error[c] = error_buffer[y * width + x][c] - gif->palette[nearest_color * 3 + c];
+            }
+
+            if (x + 1 < width) {
+                for (int c = 0; c < 3; c++)
+                    error_buffer[y * width + (x + 1)][c] += error[c] * 7.0 / 16.0;
+            }
+            if (y + 1 < height) {
+                if (x > 0) {
+                    for (int c = 0; c < 3; c++)
+                        error_buffer[(y + 1) * width + (x - 1)][c] += error[c] * 3.0 / 16.0;
+                }
+                for (int c = 0; c < 3; c++)
+                    error_buffer[(y + 1) * width + x][c] += error[c] * 5.0 / 16.0;
+                if (x + 1 < width) {
+                    for (int c = 0; c < 3; c++)
+                        error_buffer[(y + 1) * width + (x + 1)][c] += error[c] * 1.0 / 16.0;
+                }
+            }
+        }
+    }
+
+    free(error_buffer);
+}
+
+void ge_add_frame(ge_GIF *gif, uint8_t *input, uint16_t delay) {
     uint16_t w, h, x, y;
+
+    floyd_steinberg_dithering(input, gif);
 
     if (delay || (gif->bgindex >= 0)) {
         safe_write(gif->fd, (uint8_t[]) {'!', 0xF9, 0x04,
