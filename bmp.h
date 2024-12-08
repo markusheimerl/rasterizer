@@ -96,4 +96,4 @@ unsigned char* load_bmp(const char* filename, int* width, int* height, int* chan
     return data;
 }
 
-#endif /* GIF_H */
+#endif /* BMP_H */
