@@ -32,16 +32,13 @@ void rotate_y(double angle, double point[3]) {
 }
 
 // Sample texture
-void sample_texture(double u, double v, double color[3],
-                   unsigned char *texture_data,
-                   int texture_width,
-                   int texture_height) {
+void sample_texture(double u, double v, double color[3], unsigned char *texture_data, int texture_width, int texture_height) {
     // Clamp and wrap UV coordinates
     u = fmod(u, 1.0); if (u < 0) u += 1.0;
     v = fmod(v, 1.0); if (v < 0) v += 1.0;
 
     u = fmin(fmax(u, 0.0), 1.0);
-    v = 1.0 - fmin(fmax(v, 0.0), 1.0); // Invert v for correct orientation
+    v = 1.0 - fmin(fmax(v, 0.0), 1.0);
 
     int x = (int)(u * (texture_width - 1));
     int y = (int)(v * (texture_height - 1));
@@ -58,10 +55,7 @@ void sample_texture(double u, double v, double color[3],
     color[2] = texture_data[idx + 2] / 255.0;
 }
 
-void draw_triangle(double *image, const double pts[3][4], const double uv[3][2],
-                  unsigned char *texture_data,
-                  int texture_width,
-                  int texture_height) {
+void draw_triangle(double *image, const double pts[3][4], const double uv[3][2], unsigned char *texture_data, int texture_width, int texture_height) {
     double bbox_min_x = fmin(fmin(pts[0][0], pts[1][0]), pts[2][0]);
     double bbox_min_y = fmin(fmin(pts[0][1], pts[1][1]), pts[2][1]);
     double bbox_max_x = fmax(fmax(pts[0][0], pts[1][0]), pts[2][0]);
@@ -96,19 +90,7 @@ void draw_triangle(double *image, const double pts[3][4], const double uv[3][2],
     }
 }
 
-void render_frame(uint8_t *image, int frame_num,
-                 double scale_factor, double translation[3],
-                 double angle_per_frame,
-                 double (*vertices)[3],
-                 double (*initial_vertices)[3],
-                 double (*texcoords)[2],
-                 int (*triangles)[3],
-                 int (*texcoord_indices)[3],
-                 int num_vertices,
-                 int num_triangles,
-                 unsigned char *texture_data,
-                 int texture_width,
-                 int texture_height) {
+void render_frame(uint8_t *image, int frame_num, double scale_factor, double translation[3], double angle_per_frame, double (*vertices)[3], double (*initial_vertices)[3], double (*texcoords)[2], int (*triangles)[3], int (*texcoord_indices)[3], int num_vertices, int num_triangles, unsigned char *texture_data, int texture_width, int texture_height) {
     // Allocate depth buffer
     double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
@@ -203,29 +185,13 @@ int main() {
     int texture_width = 0, texture_height = 0, texture_channels = 0;
 
     // Parse OBJ file
-    parse_obj_file("drone.obj", 
-                   vertices, 
-                   initial_vertices,
-                   texcoords,
-                   triangles,
-                   texcoord_indices,
-                   &num_vertices,
-                   &num_texcoords,
-                   &num_triangles);
+    parse_obj_file("drone.obj", vertices, initial_vertices, texcoords, triangles, texcoord_indices, &num_vertices, &num_texcoords, &num_triangles);
 
     // Load texture
     texture_data = load_bmp("drone.bmp", &texture_width, &texture_height, &texture_channels);
-    if (!texture_data) {
-        fprintf(stderr, "Failed to load texture\n");
-        exit(1);
-    }
 
     // Allocate image buffer
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
-    if (!image) {
-        fprintf(stderr, "Failed to allocate image buffer\n");
-        exit(1);
-    }
 
     uint8_t palette[8 * 3] = {
         0x00, 0x00, 0x00, // Black
@@ -239,10 +205,6 @@ int main() {
     };
 
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, palette, 3, -1, 0);
-    if (!gif) {
-        fprintf(stderr, "Failed to create GIF\n");
-        exit(1);
-    }
 
     double scale_factor = 1.0;
     double translation[3] = {0, 1, 3};
@@ -251,19 +213,7 @@ int main() {
     // Render frames
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
-        render_frame(image, frame_num, 
-                    scale_factor, translation, 
-                    angle_per_frame,
-                    vertices,
-                    initial_vertices,
-                    texcoords,
-                    triangles,
-                    texcoord_indices,
-                    num_vertices,
-                    num_triangles,
-                    texture_data,
-                    texture_width,
-                    texture_height);
+        render_frame(image, frame_num, scale_factor, translation, angle_per_frame, vertices, initial_vertices, texcoords, triangles, texcoord_indices, num_vertices, num_triangles, texture_data, texture_width, texture_height);
         ge_add_frame(gif, image, 6);
     }
 
