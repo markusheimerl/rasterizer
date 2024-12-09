@@ -106,26 +106,32 @@ void render_frame(uint8_t *image, double (*vertices)[3], double (*texcoords)[2],
         double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
         double aspect = (double)WIDTH / HEIGHT;
         
+        // Project vertices
         for (int j = 0; j < 3; j++) {
             double *vertex = vertices[triangles[i][j]];
             double z = fmax(vertex[2], NEAR_PLANE);
             verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
             verts[j][1] = (f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
             verts[j][2] = z;
+            verts[j][3] = 1.0 / z;  // Store 1/z for perspective correction
             uv_coords[j][0] = texcoords[texcoord_indices[i][j]][0];
             uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
         }
         
+        // Calculate bounding box
         double bbox_min_x = fmin(fmin(verts[0][0], verts[1][0]), verts[2][0]);
         double bbox_min_y = fmin(fmin(verts[0][1], verts[1][1]), verts[2][1]);
         double bbox_max_x = fmax(fmax(verts[0][0], verts[1][0]), verts[2][0]);
         double bbox_max_y = fmax(fmax(verts[0][1], verts[1][1]), verts[2][1]);
 
+        // Rasterize
         for (int x = (int)fmax(bbox_min_x, 0); x <= (int)fmin(bbox_max_x, WIDTH - 1); x++) {
             for (int y = (int)fmax(bbox_min_y, 0); y <= (int)fmin(bbox_max_y, HEIGHT - 1); y++) {
+                // Calculate barycentric coordinates
                 double lambda[3];
                 double denominator = ((verts[1][1] - verts[2][1]) * (verts[0][0] - verts[2][0]) + 
                                     (verts[2][0] - verts[1][0]) * (verts[0][1] - verts[2][1]));
+                
                 lambda[0] = ((verts[1][1] - verts[2][1]) * (x - verts[2][0]) + 
                            (verts[2][0] - verts[1][0]) * (y - verts[2][1])) / denominator;
                 lambda[1] = ((verts[2][1] - verts[0][1]) * (x - verts[2][0]) + 
@@ -135,12 +141,27 @@ void render_frame(uint8_t *image, double (*vertices)[3], double (*texcoords)[2],
                 if (lambda[0] >= 0 && lambda[0] <= 1 && 
                     lambda[1] >= 0 && lambda[1] <= 1 && 
                     lambda[2] >= 0 && lambda[2] <= 1) {
-                    double z = lambda[0] * verts[0][2] + lambda[1] * verts[1][2] + lambda[2] * verts[2][2];
+                    
+                    // Perspective-correct interpolation
+                    double w0 = verts[0][3];  // 1/z values
+                    double w1 = verts[1][3];
+                    double w2 = verts[2][3];
+                    
+                    // Calculate interpolated depth
+                    double z_interpolated = 1.0 / (lambda[0] * w0 + lambda[1] * w1 + lambda[2] * w2);
+                    
                     int idx = y * WIDTH + x;
-                    if (z < depth_buffer[idx]) {
-                        depth_buffer[idx] = z;
-                        double u = lambda[0] * uv_coords[0][0] + lambda[1] * uv_coords[1][0] + lambda[2] * uv_coords[2][0];
-                        double v = lambda[0] * uv_coords[0][1] + lambda[1] * uv_coords[1][1] + lambda[2] * uv_coords[2][1];
+                    if (z_interpolated < depth_buffer[idx]) {
+                        depth_buffer[idx] = z_interpolated;
+                        
+                        // Perspective-correct texture coordinate interpolation
+                        double u = (lambda[0] * uv_coords[0][0] * w0 + 
+                                  lambda[1] * uv_coords[1][0] * w1 + 
+                                  lambda[2] * uv_coords[2][0] * w2) * z_interpolated;
+                        double v = (lambda[0] * uv_coords[0][1] * w0 + 
+                                  lambda[1] * uv_coords[1][1] * w1 + 
+                                  lambda[2] * uv_coords[2][1] * w2) * z_interpolated;
+                        
                         double color[3];
                         sample_texture(u, v, color, texture_data, texture_width, texture_height);
                         image[idx * 3] = (uint8_t)(color[0] * 255.0);
