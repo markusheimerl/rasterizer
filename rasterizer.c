@@ -90,7 +90,7 @@ void draw_triangle(double *image, const double pts[3][4], const double uv[3][2],
     }
 }
 
-void render_frame(uint8_t *image, int frame_num, double scale_factor, double translation[3], double angle_per_frame, double (*vertices)[3], double (*initial_vertices)[3], double (*texcoords)[2], int (*triangles)[3], int (*texcoord_indices)[3], int num_vertices, int num_triangles, unsigned char *texture_data, int texture_width, int texture_height) {
+void render_frame(uint8_t *image, double (*vertices)[3], double (*texcoords)[2], int (*triangles)[3], int (*texcoord_indices)[3], int num_triangles, unsigned char *texture_data, int texture_width, int texture_height) {
     // Allocate depth buffer
     double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
@@ -99,17 +99,6 @@ void render_frame(uint8_t *image, int frame_num, double scale_factor, double tra
     
     // Clear image buffer
     memset(image, 0, WIDTH * HEIGHT * 3);
-
-    // Transform vertices
-    for (int i = 0; i < num_vertices; i++) {
-        vertices[i][0] = initial_vertices[i][0] * scale_factor;
-        vertices[i][1] = -initial_vertices[i][1] * scale_factor;
-        vertices[i][2] = initial_vertices[i][2] * scale_factor;
-        rotate_y(frame_num * angle_per_frame, vertices[i]);
-        vertices[i][0] += translation[0];
-        vertices[i][1] += translation[1];
-        vertices[i][2] += translation[2];
-    }
 
     // Render triangles
     for (int i = 0; i < num_triangles; i++) {
@@ -127,7 +116,6 @@ void render_frame(uint8_t *image, int frame_num, double scale_factor, double tra
             uv_coords[j][1] = texcoords[texcoord_indices[i][j]][1];
         }
         
-        // Modified draw_triangle call to use separate depth buffer
         double bbox_min_x = fmin(fmin(verts[0][0], verts[1][0]), verts[2][0]);
         double bbox_min_y = fmin(fmin(verts[0][1], verts[1][1]), verts[2][1]);
         double bbox_max_x = fmax(fmax(verts[0][0], verts[1][0]), verts[2][0]);
@@ -171,11 +159,12 @@ int main() {
     // Declare arrays with fixed sizes
     double (*vertices)[3] = malloc(100000 * sizeof(*vertices));
     double (*initial_vertices)[3] = malloc(100000 * sizeof(*initial_vertices));
+    double (*transformed_vertices)[3] = malloc(100000 * sizeof(*transformed_vertices));
     double (*texcoords)[2] = malloc(100000 * sizeof(*texcoords));
     int (*triangles)[3] = malloc(200000 * sizeof(*triangles));
     int (*texcoord_indices)[3] = malloc(200000 * sizeof(*texcoord_indices));
     
-    if (!vertices || !initial_vertices || !texcoords || !triangles || !texcoord_indices) {
+    if (!vertices || !initial_vertices || !transformed_vertices || !texcoords || !triangles || !texcoord_indices) {
         fprintf(stderr, "Failed to allocate memory for mesh data\n");
         exit(1);
     }
@@ -193,17 +182,7 @@ int main() {
     // Allocate image buffer
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
 
-    uint8_t palette[8 * 3] = {
-        0x00, 0x00, 0x00, // Black
-        0xFF, 0x00, 0x00, // Red
-        0x00, 0xFF, 0x00, // Green
-        0x00, 0x00, 0xFF, // Blue
-        0xFF, 0xFF, 0x00, // Yellow
-        0xFF, 0x00, 0xFF, // Magenta
-        0x00, 0xFF, 0xFF, // Cyan
-        0xFF, 0xFF, 0xFF  // White
-    };
-
+    uint8_t palette[8 * 3] = {0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, palette, 3, -1, 0);
 
     double scale_factor = 1.0;
@@ -213,7 +192,25 @@ int main() {
     // Render frames
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
-        render_frame(image, frame_num, scale_factor, translation, angle_per_frame, vertices, initial_vertices, texcoords, triangles, texcoord_indices, num_vertices, num_triangles, texture_data, texture_width, texture_height);
+        
+        // Transform vertices for this frame
+        for (int i = 0; i < num_vertices; i++) {
+            // Scale
+            transformed_vertices[i][0] = initial_vertices[i][0] * scale_factor;
+            transformed_vertices[i][1] = -initial_vertices[i][1] * scale_factor;
+            transformed_vertices[i][2] = initial_vertices[i][2] * scale_factor;
+            
+            // Rotate
+            rotate_y(frame_num * angle_per_frame, transformed_vertices[i]);
+            
+            // Translate
+            transformed_vertices[i][0] += translation[0];
+            transformed_vertices[i][1] += translation[1];
+            transformed_vertices[i][2] += translation[2];
+        }
+        
+        // Render with transformed vertices
+        render_frame(image, transformed_vertices, texcoords, triangles, texcoord_indices, num_triangles, texture_data, texture_width, texture_height);
         ge_add_frame(gif, image, 6);
     }
 
@@ -223,6 +220,7 @@ int main() {
     free(texture_data);
     free(vertices);
     free(initial_vertices);
+    free(transformed_vertices);
     free(texcoords);
     free(triangles);
     free(texcoord_indices);
