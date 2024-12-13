@@ -45,7 +45,7 @@ void transform_vertex(double m[4][4], double in[3], double out[3]) {
     }
     
     out[0] = result[0] / result[3];
-    out[1] = -result[1] / result[3];  // Flip Y coordinate
+    out[1] = result[1] / result[3];
     out[2] = result[2] / result[3];
 }
 
