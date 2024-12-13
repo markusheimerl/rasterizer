@@ -143,13 +143,19 @@ void update_object_vertices(Object3D* obj) {
         double *vertex = obj->transformed_vertices[i];
         double z = fmax(vertex[2], NEAR_PLANE);
         
-        // Store the original z for depth testing
-        double original_z = z;
+        // Create projection matrix for this specific z value
+        double projection_matrix[4][4] = {{0}};
+        projection_matrix[0][0] = -(f / aspect);
+        projection_matrix[1][1] = -f;
+        projection_matrix[2][2] = 1.0;
+        projection_matrix[3][3] = 1.0;
         
-        // Apply projection transformation
-        vertex[0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
-        vertex[1] = (-f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
-        vertex[2] = original_z;  // Keep the original z for depth testing
+        double projected[3];
+        transform_vertex(projection_matrix, vertex, projected);
+        
+        vertex[0] = (projected[0] / z + 1.0) * WIDTH / 2.0;
+        vertex[1] = (projected[1] / z + 1.0) * HEIGHT / 2.0;
+        vertex[2] = z;  // Keep the original z for depth testing
     }
 }
 
