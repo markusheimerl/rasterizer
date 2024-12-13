@@ -141,21 +141,25 @@ void update_object_vertices(Object3D* obj) {
     // Then apply projection transformation
     for (int i = 0; i < obj->num_vertices; i++) {
         double *vertex = obj->transformed_vertices[i];
-        double z = fmax(vertex[2], NEAR_PLANE);
         
-        // Create projection matrix for this specific z value
-        double projection_matrix[4][4] = {{0}};
-        projection_matrix[0][0] = -(f / aspect);
-        projection_matrix[1][1] = -f;
-        projection_matrix[2][2] = 1.0;
-        projection_matrix[3][3] = 1.0;
+        // Step 1: Project using matrix
+        double projection_matrix[4][4] = {
+            {f,   0.0, 0.0, 0.0},
+            {0.0, f,   0.0, 0.0},
+            {0.0, 0.0, 1.0, 0.0},
+            {0.0, 0.0, 0.0, 1.0}
+        };
         
         double projected[3];
         transform_vertex(projection_matrix, vertex, projected);
         
-        vertex[0] = (projected[0] / z + 1.0) * WIDTH / 2.0;
-        vertex[1] = (projected[1] / z + 1.0) * HEIGHT / 2.0;
-        vertex[2] = z;  // Keep the original z for depth testing
+        // Step 2: Handle z-clipping
+        double z = fmax(projected[2], NEAR_PLANE);
+        
+        // Step 3: Apply viewport transform
+        vertex[0] = (-projected[0] / (z * aspect) + 1.0) * WIDTH / 2.0;
+        vertex[1] = (-projected[1] / z + 1.0) * HEIGHT / 2.0;
+        vertex[2] = z;
     }
 }
 
