@@ -37,13 +37,71 @@ typedef struct {
     int texture_width;
     int texture_height;
     int texture_channels;
-    double scale_factor;
-    double translation[3];
+    double model_matrix[4][4];
 } Object3D;
 
-void rotate_y(double angle, double point[3]) {
-    double s = sin(angle), c = cos(angle), x = point[0], z = point[2];
-    point[0] = c * x + s * z; point[2] = -s * x + c * z;
+void matrix_identity(double m[4][4]) {
+    memset(m, 0, 16 * sizeof(double));
+    m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0;
+}
+
+void matrix_multiply(double a[4][4], double b[4][4], double result[4][4]) {
+    double temp[4][4] = {0};
+    for(int i = 0; i < 4; i++) {
+        for(int j = 0; j < 4; j++) {
+            for(int k = 0; k < 4; k++) {
+                temp[i][j] += a[i][k] * b[k][j];
+            }
+        }
+    }
+    memcpy(result, temp, 16 * sizeof(double));
+}
+
+void matrix_translate(double m[4][4], double x, double y, double z) {
+    double t[4][4] = {
+        {1, 0, 0, x},
+        {0, 1, 0, y},
+        {0, 0, 1, z},
+        {0, 0, 0, 1}
+    };
+    matrix_multiply(m, t, m);
+}
+
+void matrix_scale(double m[4][4], double s) {
+    double scale[4][4] = {
+        {s, 0, 0, 0},
+        {0, s, 0, 0},
+        {0, 0, s, 0},
+        {0, 0, 0, 1}
+    };
+    matrix_multiply(m, scale, m);
+}
+
+void matrix_rotate_y(double m[4][4], double angle) {
+    double c = cos(angle);
+    double s = sin(angle);
+    double r[4][4] = {
+        {c,  0, s, 0},
+        {0,  1, 0, 0},
+        {-s, 0, c, 0},
+        {0,  0, 0, 1}
+    };
+    matrix_multiply(m, r, m);
+}
+
+void transform_vertex(double m[4][4], double in[3], double out[3]) {
+    double temp[4] = {in[0], in[1], in[2], 1.0};
+    double result[4] = {0};
+    
+    for(int i = 0; i < 4; i++) {
+        for(int j = 0; j < 4; j++) {
+            result[i] += m[i][j] * temp[j];
+        }
+    }
+    
+    out[0] = result[0] / result[3];
+    out[1] = -result[1] / result[3];  // Flip Y coordinate
+    out[2] = result[2] / result[3];
 }
 
 void sample_texture(double u, double v, double color[3], unsigned char *texture_data, int texture_width, int texture_height) {
@@ -64,13 +122,11 @@ void sample_texture(double u, double v, double color[3], unsigned char *texture_
 }
 
 void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
-    // Create and initialize depth buffer
     double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
         depth_buffer[i] = DBL_MAX;
     }
 
-    // Render all objects
     for (int obj_idx = 0; obj_idx < num_objects; obj_idx++) {
         Object3D *obj = objects[obj_idx];
         
@@ -138,12 +194,10 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
             }
         }
     }
-
-    // Clean up depth buffer
     free(depth_buffer);
 }
 
-Object3D* create_object(const char* obj_file, const char* texture_file, double scale, double tx, double ty, double tz) {
+Object3D* create_object(const char* obj_file, const char* texture_file) {
     Object3D* obj = malloc(sizeof(Object3D));
     
     obj->vertices = malloc(100000 * sizeof(*obj->vertices));
@@ -163,25 +217,14 @@ Object3D* create_object(const char* obj_file, const char* texture_file, double s
     obj->texture_data = load_bmp(texture_file, &obj->texture_width, 
                                 &obj->texture_height, &obj->texture_channels);
     
-    obj->scale_factor = scale;
-    obj->translation[0] = tx;
-    obj->translation[1] = ty;
-    obj->translation[2] = tz;
+    matrix_identity(obj->model_matrix);
     
     return obj;
 }
 
-void transform_object(Object3D* obj, double angle) {
+void update_object_vertices(Object3D* obj) {
     for (int i = 0; i < obj->num_vertices; i++) {
-        obj->transformed_vertices[i][0] = obj->initial_vertices[i][0] * obj->scale_factor;
-        obj->transformed_vertices[i][1] = -obj->initial_vertices[i][1] * obj->scale_factor;
-        obj->transformed_vertices[i][2] = obj->initial_vertices[i][2] * obj->scale_factor;
-        
-        rotate_y(angle, obj->transformed_vertices[i]);
-        
-        obj->transformed_vertices[i][0] += obj->translation[0];
-        obj->transformed_vertices[i][1] += obj->translation[1];
-        obj->transformed_vertices[i][2] += obj->translation[2];
+        transform_vertex(obj->model_matrix, obj->initial_vertices[i], obj->transformed_vertices[i]);
     }
 }
 
@@ -197,15 +240,16 @@ void free_object(Object3D* obj) {
 }
 
 int main() {
-    // Create objects
-    Object3D* drone = create_object("drone.obj", "drone.bmp", 1.0, 0.0, 1.0, 3.0);
-    Object3D* ground = create_object("ground.obj", "ground.bmp", 30.0, 0.0, 1.5, 3.0);
+    Object3D* drone = create_object("drone.obj", "drone.bmp");
+    Object3D* ground = create_object("ground.obj", "ground.bmp");
 
-    // Create array of objects
+    // Set up initial transformations
+    matrix_translate(ground->model_matrix, 0.0, 1.5, 3.0);
+    matrix_scale(ground->model_matrix, 30.0);
+
     Object3D* objects[] = {drone, ground};
     int num_objects = sizeof(objects) / sizeof(objects[0]);
 
-    // Allocate image buffer
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
 
     uint8_t palette[8 * 3] = {
@@ -222,24 +266,26 @@ int main() {
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, palette, 3, -1, 0);
     double angle_per_frame = (2.0 * M_PI) / FRAMES;
 
-    // Render frames
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
         
-        // Clear image buffer
         memset(image, 0, WIDTH * HEIGHT * 3);
         
-        // Transform objects
-        transform_object(drone, frame_num * angle_per_frame);  // Rotate the drone
-        transform_object(ground, 0.0);  // Transform ground with no rotation
+        // Update drone's transformation
+        matrix_identity(drone->model_matrix);
+        matrix_translate(drone->model_matrix, 0.0, 1.0, 3.0);
+        matrix_scale(drone->model_matrix, 1.0);
+        matrix_rotate_y(drone->model_matrix, frame_num * angle_per_frame);
         
-        // Render all objects
+        // Update vertices for all objects
+        for (int i = 0; i < num_objects; i++) {
+            update_object_vertices(objects[i]);
+        }
+        
         render_frame(image, objects, num_objects);
-        
         ge_add_frame(gif, image, 6);
     }
 
-    // Cleanup
     ge_close_gif(gif);
     free(image);
     for (int i = 0; i < num_objects; i++) {
