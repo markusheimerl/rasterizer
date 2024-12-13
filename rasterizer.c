@@ -132,10 +132,16 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
 void update_object_vertices(Object3D* obj) {
     double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
     double aspect = (double)WIDTH / HEIGHT;
+    double z_scale = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);  // New z-scale factor
 
     // First apply model transformation
     for (int i = 0; i < obj->num_vertices; i++) {
         transform_vertex(obj->model_matrix, obj->initial_vertices[i], obj->transformed_vertices[i]);
+    }
+
+    // Then apply z-clipping
+    for (int i = 0; i < obj->num_vertices; i++) {
+        obj->transformed_vertices[i][2] = fmax(obj->transformed_vertices[i][2], NEAR_PLANE);
     }
 
     // Then apply projection transformation
@@ -144,22 +150,19 @@ void update_object_vertices(Object3D* obj) {
         
         // Step 1: Project using matrix
         double projection_matrix[4][4] = {
-            {f,   0.0, 0.0, 0.0},
-            {0.0, f,   0.0, 0.0},
-            {0.0, 0.0, 1.0, 0.0},
-            {0.0, 0.0, 0.0, 1.0}
+            {-f,   0.0,    0.0, 0.0},
+            {0.0, -f,      0.0, 0.0},
+            {0.0,  0.0, z_scale, 0.0},  // Added z_scale here
+            {0.0,  0.0,    0.0, 1.0}
         };
         
         double projected[3];
         transform_vertex(projection_matrix, vertex, projected);
         
-        // Step 2: Handle z-clipping
-        double z = fmax(projected[2], NEAR_PLANE);
-        
-        // Step 3: Apply viewport transform
-        vertex[0] = (-projected[0] / (z * aspect) + 1.0) * WIDTH / 2.0;
-        vertex[1] = (-projected[1] / z + 1.0) * HEIGHT / 2.0;
-        vertex[2] = z;
+        // Step 2: Apply viewport transform using projected z
+        vertex[0] = (projected[0] / (projected[2] * aspect) + 1.0) * WIDTH / 2.0;
+        vertex[1] = (projected[1] / projected[2] + 1.0) * HEIGHT / 2.0;
+        vertex[2] = projected[2];
     }
 }
 
