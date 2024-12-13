@@ -77,27 +77,26 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
         
         for (int i = 0; i < obj->num_triangles; i++) {
             double verts[3][4], uv_coords[3][2];
-            double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
-            double aspect = (double)WIDTH / HEIGHT;
-            
             for (int j = 0; j < 3; j++) {
                 double *vertex = obj->transformed_vertices[obj->triangles[i][j]];
-                double z = fmax(vertex[2], NEAR_PLANE);
-                verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
-                verts[j][1] = (-f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
-                verts[j][2] = z;
-                verts[j][3] = 1.0 / z;
+                verts[j][0] = vertex[0];
+                verts[j][1] = vertex[1];
+                verts[j][2] = vertex[2];
+                verts[j][3] = 1.0 / vertex[2];
                 uv_coords[j][0] = obj->texcoords[obj->texcoord_indices[i][j]][0];
                 uv_coords[j][1] = obj->texcoords[obj->texcoord_indices[i][j]][1];
             }
 
+            // Calculate bounding box
             double bbox_min_x = fmin(fmin(verts[0][0], verts[1][0]), verts[2][0]);
             double bbox_min_y = fmin(fmin(verts[0][1], verts[1][1]), verts[2][1]);
             double bbox_max_x = fmax(fmax(verts[0][0], verts[1][0]), verts[2][0]);
             double bbox_max_y = fmax(fmax(verts[0][1], verts[1][1]), verts[2][1]);
 
+            // Rasterize triangle
             for (int x = (int)fmax(bbox_min_x, 0); x <= (int)fmin(bbox_max_x, WIDTH - 1); x++) {
                 for (int y = (int)fmax(bbox_min_y, 0); y <= (int)fmin(bbox_max_y, HEIGHT - 1); y++) {
+                    // Calculate barycentric coordinates
                     double lambda[3];
                     double denominator = ((verts[1][1] - verts[2][1]) * (verts[0][0] - verts[2][0]) + 
                                         (verts[2][0] - verts[1][0]) * (verts[0][1] - verts[2][1]));
@@ -108,10 +107,12 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
                                (verts[0][0] - verts[2][0]) * (y - verts[2][1])) / denominator;
                     lambda[2] = 1.0 - lambda[0] - lambda[1];
 
+                    // Check if point is inside triangle
                     if (lambda[0] >= 0 && lambda[0] <= 1 && 
                         lambda[1] >= 0 && lambda[1] <= 1 && 
                         lambda[2] >= 0 && lambda[2] <= 1) {
                         
+                        // Perspective-correct interpolation
                         double w0 = verts[0][3];
                         double w1 = verts[1][3];
                         double w2 = verts[2][3];
@@ -121,6 +122,7 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
                         if (z_interpolated < depth_buffer[idx]) {
                             depth_buffer[idx] = z_interpolated;
                             
+                            // Interpolate texture coordinates
                             double u = (lambda[0] * uv_coords[0][0] * w0 + 
                                       lambda[1] * uv_coords[1][0] * w1 + 
                                       lambda[2] * uv_coords[2][0] * w2) * z_interpolated;
@@ -128,6 +130,7 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
                                       lambda[1] * uv_coords[1][1] * w1 + 
                                       lambda[2] * uv_coords[2][1] * w2) * z_interpolated;
                             
+                            // Sample texture and write to image buffer
                             double color[3];
                             sample_texture(u, v, color, obj->texture_data, obj->texture_width, obj->texture_height);
                             image[idx * 3] = (uint8_t)(color[0] * 255.0);
@@ -168,11 +171,28 @@ Object3D* create_object(const char* obj_file, const char* texture_file) {
 }
 
 void update_object_vertices(Object3D* obj) {
+    double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
+    double aspect = (double)WIDTH / HEIGHT;
+
+    // First apply model transformation
     for (int i = 0; i < obj->num_vertices; i++) {
         transform_vertex(obj->model_matrix, obj->initial_vertices[i], obj->transformed_vertices[i]);
     }
-}
 
+    // Then apply projection transformation
+    for (int i = 0; i < obj->num_vertices; i++) {
+        double *vertex = obj->transformed_vertices[i];
+        double z = fmax(vertex[2], NEAR_PLANE);
+        
+        // Store the original z for depth testing
+        double original_z = z;
+        
+        // Apply projection transformation
+        vertex[0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
+        vertex[1] = (-f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
+        vertex[2] = original_z;  // Keep the original z for depth testing
+    }
+}
 void free_object(Object3D* obj) {
     free(obj->vertices);
     free(obj->initial_vertices);
