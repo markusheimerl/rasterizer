@@ -132,7 +132,8 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
 void update_object_vertices(Object3D* obj) {
     double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
     double aspect = (double)WIDTH / HEIGHT;
-    double z_scale = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);  // New z-scale factor
+    double z_scale = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
+    double z_trans = (2 * FAR_PLANE * NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
 
     // First apply model transformation
     for (int i = 0; i < obj->num_vertices; i++) {
@@ -150,10 +151,10 @@ void update_object_vertices(Object3D* obj) {
         
         // Step 1: Project using matrix
         double projection_matrix[4][4] = {
-            {-f,   0.0,    0.0, 0.0},
-            {0.0, -f,      0.0, 0.0},
-            {0.0,  0.0, z_scale, 0.0},  // Added z_scale here
-            {0.0,  0.0,    0.0, 1.0}
+            {-f,   0.0,    0.0,     0.0},
+            {0.0, -f,      0.0,     0.0},
+            {0.0,  0.0, z_scale,  z_trans},
+            {0.0,  0.0,    0.0,     1.0}
         };
         
         double projected[3];
