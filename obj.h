@@ -21,13 +21,12 @@ void parse_obj_file(const char *filename,
         if (strncmp(line, "v ", 2) == 0) {
             double x, y, z;
             sscanf(line + 2, "%lf %lf %lf", &x, &y, &z);
-            // Store vertices with negated Y coordinate
             vertices[*num_vertices][0] = x;
-            vertices[*num_vertices][1] = -y;  // Negate Y coordinate
+            vertices[*num_vertices][1] = y;
             vertices[*num_vertices][2] = z;
             
             initial_vertices[*num_vertices][0] = x;
-            initial_vertices[*num_vertices][1] = -y;  // Negate Y coordinate
+            initial_vertices[*num_vertices][1] = y;
             initial_vertices[*num_vertices][2] = z;
             
             (*num_vertices)++;

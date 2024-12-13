@@ -84,7 +84,7 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
                 double *vertex = obj->transformed_vertices[obj->triangles[i][j]];
                 double z = fmax(vertex[2], NEAR_PLANE);
                 verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
-                verts[j][1] = (f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
+                verts[j][1] = (-f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
                 verts[j][2] = z;
                 verts[j][3] = 1.0 / z;
                 uv_coords[j][0] = obj->texcoords[obj->texcoord_indices[i][j]][0];
@@ -189,7 +189,7 @@ int main() {
     Object3D* ground = create_object("ground.obj", "ground.bmp");
 
     // Set up initial transformations
-    matrix_translate(ground->model_matrix, 0.0, 1.5, 3.0);
+    matrix_translate(ground->model_matrix, 0.0, -1.0, 3.0);
     matrix_scale(ground->model_matrix, 30.0);
 
     Object3D* objects[] = {drone, ground};
@@ -218,7 +218,7 @@ int main() {
         
         // Update drone's transformation
         matrix_identity(drone->model_matrix);
-        matrix_translate(drone->model_matrix, 0.0, 1.0, 3.0);
+        matrix_translate(drone->model_matrix, 0.0, 0.5, 3.0);
         matrix_scale(drone->model_matrix, 1.0);
         matrix_rotate_y(drone->model_matrix, frame_num * angle_per_frame);
         
