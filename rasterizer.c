@@ -63,70 +63,84 @@ void sample_texture(double u, double v, double color[3], unsigned char *texture_
     color[2] = texture_data[idx + 2] / 255.0;
 }
 
-void render_frame(uint8_t *image, Object3D *obj, double *depth_buffer) {
-    for (int i = 0; i < obj->num_triangles; i++) {
-        double verts[3][4], uv_coords[3][2];
-        double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
-        double aspect = (double)WIDTH / HEIGHT;
+void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
+    // Create and initialize depth buffer
+    double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
+    for (int i = 0; i < WIDTH * HEIGHT; i++) {
+        depth_buffer[i] = DBL_MAX;
+    }
+
+    // Render all objects
+    for (int obj_idx = 0; obj_idx < num_objects; obj_idx++) {
+        Object3D *obj = objects[obj_idx];
         
-        for (int j = 0; j < 3; j++) {
-            double *vertex = obj->transformed_vertices[obj->triangles[i][j]];
-            double z = fmax(vertex[2], NEAR_PLANE);
-            verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
-            verts[j][1] = (f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
-            verts[j][2] = z;
-            verts[j][3] = 1.0 / z;
-            uv_coords[j][0] = obj->texcoords[obj->texcoord_indices[i][j]][0];
-            uv_coords[j][1] = obj->texcoords[obj->texcoord_indices[i][j]][1];
-        }
+        for (int i = 0; i < obj->num_triangles; i++) {
+            double verts[3][4], uv_coords[3][2];
+            double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
+            double aspect = (double)WIDTH / HEIGHT;
+            
+            for (int j = 0; j < 3; j++) {
+                double *vertex = obj->transformed_vertices[obj->triangles[i][j]];
+                double z = fmax(vertex[2], NEAR_PLANE);
+                verts[j][0] = (-(f / aspect) * vertex[0] / z + 1.0) * WIDTH / 2.0;
+                verts[j][1] = (f * vertex[1] / z + 1.0) * HEIGHT / 2.0;
+                verts[j][2] = z;
+                verts[j][3] = 1.0 / z;
+                uv_coords[j][0] = obj->texcoords[obj->texcoord_indices[i][j]][0];
+                uv_coords[j][1] = obj->texcoords[obj->texcoord_indices[i][j]][1];
+            }
 
-        double bbox_min_x = fmin(fmin(verts[0][0], verts[1][0]), verts[2][0]);
-        double bbox_min_y = fmin(fmin(verts[0][1], verts[1][1]), verts[2][1]);
-        double bbox_max_x = fmax(fmax(verts[0][0], verts[1][0]), verts[2][0]);
-        double bbox_max_y = fmax(fmax(verts[0][1], verts[1][1]), verts[2][1]);
+            double bbox_min_x = fmin(fmin(verts[0][0], verts[1][0]), verts[2][0]);
+            double bbox_min_y = fmin(fmin(verts[0][1], verts[1][1]), verts[2][1]);
+            double bbox_max_x = fmax(fmax(verts[0][0], verts[1][0]), verts[2][0]);
+            double bbox_max_y = fmax(fmax(verts[0][1], verts[1][1]), verts[2][1]);
 
-        for (int x = (int)fmax(bbox_min_x, 0); x <= (int)fmin(bbox_max_x, WIDTH - 1); x++) {
-            for (int y = (int)fmax(bbox_min_y, 0); y <= (int)fmin(bbox_max_y, HEIGHT - 1); y++) {
-                double lambda[3];
-                double denominator = ((verts[1][1] - verts[2][1]) * (verts[0][0] - verts[2][0]) + 
-                                    (verts[2][0] - verts[1][0]) * (verts[0][1] - verts[2][1]));
-                
-                lambda[0] = ((verts[1][1] - verts[2][1]) * (x - verts[2][0]) + 
-                           (verts[2][0] - verts[1][0]) * (y - verts[2][1])) / denominator;
-                lambda[1] = ((verts[2][1] - verts[0][1]) * (x - verts[2][0]) + 
-                           (verts[0][0] - verts[2][0]) * (y - verts[2][1])) / denominator;
-                lambda[2] = 1.0 - lambda[0] - lambda[1];
-
-                if (lambda[0] >= 0 && lambda[0] <= 1 && 
-                    lambda[1] >= 0 && lambda[1] <= 1 && 
-                    lambda[2] >= 0 && lambda[2] <= 1) {
+            for (int x = (int)fmax(bbox_min_x, 0); x <= (int)fmin(bbox_max_x, WIDTH - 1); x++) {
+                for (int y = (int)fmax(bbox_min_y, 0); y <= (int)fmin(bbox_max_y, HEIGHT - 1); y++) {
+                    double lambda[3];
+                    double denominator = ((verts[1][1] - verts[2][1]) * (verts[0][0] - verts[2][0]) + 
+                                        (verts[2][0] - verts[1][0]) * (verts[0][1] - verts[2][1]));
                     
-                    double w0 = verts[0][3];
-                    double w1 = verts[1][3];
-                    double w2 = verts[2][3];
-                    double z_interpolated = 1.0 / (lambda[0] * w0 + lambda[1] * w1 + lambda[2] * w2);
-                    
-                    int idx = y * WIDTH + x;
-                    if (z_interpolated < depth_buffer[idx]) {
-                        depth_buffer[idx] = z_interpolated;
+                    lambda[0] = ((verts[1][1] - verts[2][1]) * (x - verts[2][0]) + 
+                               (verts[2][0] - verts[1][0]) * (y - verts[2][1])) / denominator;
+                    lambda[1] = ((verts[2][1] - verts[0][1]) * (x - verts[2][0]) + 
+                               (verts[0][0] - verts[2][0]) * (y - verts[2][1])) / denominator;
+                    lambda[2] = 1.0 - lambda[0] - lambda[1];
+
+                    if (lambda[0] >= 0 && lambda[0] <= 1 && 
+                        lambda[1] >= 0 && lambda[1] <= 1 && 
+                        lambda[2] >= 0 && lambda[2] <= 1) {
                         
-                        double u = (lambda[0] * uv_coords[0][0] * w0 + 
-                                  lambda[1] * uv_coords[1][0] * w1 + 
-                                  lambda[2] * uv_coords[2][0] * w2) * z_interpolated;
-                        double v = (lambda[0] * uv_coords[0][1] * w0 + 
-                                  lambda[1] * uv_coords[1][1] * w1 + 
-                                  lambda[2] * uv_coords[2][1] * w2) * z_interpolated;
+                        double w0 = verts[0][3];
+                        double w1 = verts[1][3];
+                        double w2 = verts[2][3];
+                        double z_interpolated = 1.0 / (lambda[0] * w0 + lambda[1] * w1 + lambda[2] * w2);
                         
-                        double color[3];
-                        sample_texture(u, v, color, obj->texture_data, obj->texture_width, obj->texture_height);
-                        image[idx * 3] = (uint8_t)(color[0] * 255.0);
-                        image[idx * 3 + 1] = (uint8_t)(color[1] * 255.0);
-                        image[idx * 3 + 2] = (uint8_t)(color[2] * 255.0);
+                        int idx = y * WIDTH + x;
+                        if (z_interpolated < depth_buffer[idx]) {
+                            depth_buffer[idx] = z_interpolated;
+                            
+                            double u = (lambda[0] * uv_coords[0][0] * w0 + 
+                                      lambda[1] * uv_coords[1][0] * w1 + 
+                                      lambda[2] * uv_coords[2][0] * w2) * z_interpolated;
+                            double v = (lambda[0] * uv_coords[0][1] * w0 + 
+                                      lambda[1] * uv_coords[1][1] * w1 + 
+                                      lambda[2] * uv_coords[2][1] * w2) * z_interpolated;
+                            
+                            double color[3];
+                            sample_texture(u, v, color, obj->texture_data, obj->texture_width, obj->texture_height);
+                            image[idx * 3] = (uint8_t)(color[0] * 255.0);
+                            image[idx * 3 + 1] = (uint8_t)(color[1] * 255.0);
+                            image[idx * 3 + 2] = (uint8_t)(color[2] * 255.0);
+                        }
                     }
                 }
             }
         }
     }
+
+    // Clean up depth buffer
+    free(depth_buffer);
 }
 
 Object3D* create_object(const char* obj_file, const char* texture_file, double scale, double tx, double ty, double tz) {
@@ -187,9 +201,12 @@ int main() {
     Object3D* drone = create_object("drone.obj", "drone.bmp", 1.0, 0.0, 1.0, 3.0);
     Object3D* head = create_object("head.obj", "head.bmp", 1.0, 0.0, 1.0, 3.0);
 
-    // Allocate image and depth buffers
+    // Create array of objects
+    Object3D* objects[] = {drone, head};
+    int num_objects = sizeof(objects) / sizeof(objects[0]);
+
+    // Allocate image buffer
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
-    double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
 
     uint8_t palette[8 * 3] = {
         0x00, 0x00, 0x00, 
@@ -209,19 +226,16 @@ int main() {
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
         printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
         
-        // Clear buffers
+        // Clear image buffer
         memset(image, 0, WIDTH * HEIGHT * 3);
-        for (int i = 0; i < WIDTH * HEIGHT; i++) {
-            depth_buffer[i] = DBL_MAX;
-        }
         
         // Transform objects
-        transform_object(drone, frame_num * angle_per_frame);
-        transform_object(head, frame_num * angle_per_frame);
+        for (int i = 0; i < num_objects; i++) {
+            transform_object(objects[i], frame_num * angle_per_frame);
+        }
         
-        // Render objects with shared depth buffer
-        render_frame(image, drone, depth_buffer);
-        render_frame(image, head, depth_buffer);
+        // Render all objects
+        render_frame(image, objects, num_objects);
         
         ge_add_frame(gif, image, 6);
     }
@@ -229,9 +243,9 @@ int main() {
     // Cleanup
     ge_close_gif(gif);
     free(image);
-    free(depth_buffer);
-    free_object(drone);
-    free_object(head);
+    for (int i = 0; i < num_objects; i++) {
+        free_object(objects[i]);
+    }
 
     return 0;
 }
