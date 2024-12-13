@@ -199,7 +199,7 @@ void free_object(Object3D* obj) {
 int main() {
     // Create objects
     Object3D* drone = create_object("drone.obj", "drone.bmp", 1.0, 0.0, 1.0, 3.0);
-    Object3D* head = create_object("head.obj", "head.bmp", 1.0, 0.0, 1.0, 3.0);
+    Object3D* head = create_object("ground.obj", "head.bmp", 1.0, 0.0, 1.5, 3.0);
 
     // Create array of objects
     Object3D* objects[] = {drone, head};
