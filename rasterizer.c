@@ -18,21 +18,6 @@
 #define NEAR_PLANE 0.1
 #define FAR_PLANE 100.0
 
-void transform_vertex(double m[4][4], double in[3], double out[3]) {
-    double temp[4] = {in[0], in[1], in[2], 1.0};
-    double result[4] = {0};
-    
-    for(int i = 0; i < 4; i++) {
-        for(int j = 0; j < 4; j++) {
-            result[i] += m[i][j] * temp[j];
-        }
-    }
-    
-    out[0] = result[0] / result[3];
-    out[1] = result[1] / result[3];
-    out[2] = result[2] / result[3];
-}
-
 void sample_texture(double u, double v, double color[3], unsigned char *texture_data, int texture_width, int texture_height) {
     u = fmod(u, 1.0); if (u < 0) u += 1.0;
     v = fmod(v, 1.0); if (v < 0) v += 1.0;
@@ -135,35 +120,63 @@ void update_object_vertices(Object3D* obj) {
     double z_scale = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
     double z_trans = (2 * FAR_PLANE * NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
 
-    // First apply model transformation
+    // Apply model transformation
     for (int i = 0; i < obj->num_vertices; i++) {
-        transform_vertex(obj->model_matrix, obj->initial_vertices[i], obj->transformed_vertices[i]);
-    }
-
-    // Then apply z-clipping
-    for (int i = 0; i < obj->num_vertices; i++) {
-        obj->transformed_vertices[i][2] = fmax(obj->transformed_vertices[i][2], NEAR_PLANE);
-    }
-
-    // Then apply projection transformation
-    for (int i = 0; i < obj->num_vertices; i++) {
-        double *vertex = obj->transformed_vertices[i];
-        
-        // Step 1: Project using matrix
-        double projection_matrix[4][4] = {
-            {-f,   0.0,    0.0,     0.0},
-            {0.0, -f,      0.0,     0.0},
-            {0.0,  0.0, z_scale,  z_trans},
-            {0.0,  0.0,    0.0,     1.0}
+        double temp[4] = {
+            obj->initial_vertices[i][0],
+            obj->initial_vertices[i][1],
+            obj->initial_vertices[i][2],
+            1.0
         };
+        double result[4] = {0};
         
-        double projected[3];
-        transform_vertex(projection_matrix, vertex, projected);
+        // Model transformation
+        for(int row = 0; row < 4; row++) {
+            for(int col = 0; col < 4; col++) {
+                result[row] += obj->model_matrix[row][col] * temp[col];
+            }
+        }
         
-        // Step 2: Apply viewport transform using projected z
-        vertex[0] = (projected[0] / (projected[2] * aspect) + 1.0) * WIDTH / 2.0;
-        vertex[1] = (projected[1] / projected[2] + 1.0) * HEIGHT / 2.0;
-        vertex[2] = projected[2];
+        // Store intermediate results
+        obj->transformed_vertices[i][0] = result[0] / result[3];
+        obj->transformed_vertices[i][1] = result[1] / result[3];
+        obj->transformed_vertices[i][2] = fmax(result[2] / result[3], NEAR_PLANE); // Z-clipping
+    }
+
+    // Apply projection transformation
+    double projection_matrix[4][4] = {
+        {-f,   0.0,    0.0,     0.0},
+        {0.0, -f,      0.0,     0.0},
+        {0.0,  0.0, z_scale,  z_trans},
+        {0.0,  0.0,    0.0,     1.0}
+    };
+
+    for (int i = 0; i < obj->num_vertices; i++) {
+        double temp[4] = {
+            obj->transformed_vertices[i][0],
+            obj->transformed_vertices[i][1],
+            obj->transformed_vertices[i][2],
+            1.0
+        };
+        double result[4] = {0};
+        
+        // Projection transformation
+        for(int row = 0; row < 4; row++) {
+            for(int col = 0; col < 4; col++) {
+                result[row] += projection_matrix[row][col] * temp[col];
+            }
+        }
+        
+        double projected[3] = {
+            result[0] / result[3],
+            result[1] / result[3],
+            result[2] / result[3]
+        };
+
+        // Apply viewport transform
+        obj->transformed_vertices[i][0] = (projected[0] / (projected[2] * aspect) + 1.0) * WIDTH / 2.0;
+        obj->transformed_vertices[i][1] = (projected[1] / projected[2] + 1.0) * HEIGHT / 2.0;
+        obj->transformed_vertices[i][2] = projected[2];
     }
 }
 
