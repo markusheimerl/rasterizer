@@ -115,68 +115,33 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
 }
 
 void update_object_vertices(Object3D* obj) {
+    // Convert FOV to a scaling factor
     double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
-    double aspect = (double)WIDTH / HEIGHT;
-    double z_scale = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
-    double z_trans = (2 * FAR_PLANE * NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
-
-    // Apply model transformation
+    
     for (int i = 0; i < obj->num_vertices; i++) {
-        double temp[4] = {
-            obj->initial_vertices[i][0],
-            obj->initial_vertices[i][1],
-            obj->initial_vertices[i][2],
-            1.0
-        };
-        double result[4] = {0};
+        double x = obj->initial_vertices[i][0];
+        double y = obj->initial_vertices[i][1];
+        double z = obj->initial_vertices[i][2];
         
-        // Model transformation
-        for(int row = 0; row < 4; row++) {
-            for(int col = 0; col < 4; col++) {
-                result[row] += obj->model_matrix[row][col] * temp[col];
-            }
-        }
+        // Apply model transformation (stored in model_matrix)
+        double tx = obj->model_matrix[0][0] * x + obj->model_matrix[0][1] * y + 
+                   obj->model_matrix[0][2] * z + obj->model_matrix[0][3];
+        double ty = obj->model_matrix[1][0] * x + obj->model_matrix[1][1] * y + 
+                   obj->model_matrix[1][2] * z + obj->model_matrix[1][3];
+        double tz = obj->model_matrix[2][0] * x + obj->model_matrix[2][1] * y + 
+                   obj->model_matrix[2][2] * z + obj->model_matrix[2][3];
         
-        // Store intermediate results
-        obj->transformed_vertices[i][0] = result[0] / result[3];
-        obj->transformed_vertices[i][1] = result[1] / result[3];
-        obj->transformed_vertices[i][2] = fmax(result[2] / result[3], NEAR_PLANE); // Z-clipping
-    }
-
-    // Apply projection transformation
-    double projection_matrix[4][4] = {
-        {-f,   0.0,    0.0,     0.0},
-        {0.0, -f,      0.0,     0.0},
-        {0.0,  0.0, z_scale,  z_trans},
-        {0.0,  0.0,    0.0,     1.0}
-    };
-
-    for (int i = 0; i < obj->num_vertices; i++) {
-        double temp[4] = {
-            obj->transformed_vertices[i][0],
-            obj->transformed_vertices[i][1],
-            obj->transformed_vertices[i][2],
-            1.0
-        };
-        double result[4] = {0};
+        // Ensure minimum z distance
+        tz = fmax(tz, NEAR_PLANE);
         
-        // Projection transformation
-        for(int row = 0; row < 4; row++) {
-            for(int col = 0; col < 4; col++) {
-                result[row] += projection_matrix[row][col] * temp[col];
-            }
-        }
+        // Simple perspective projection
+        double px = -f * tx / tz;
+        double py = -f * ty / tz;
         
-        double projected[3] = {
-            result[0] / result[3],
-            result[1] / result[3],
-            result[2] / result[3]
-        };
-
-        // Apply viewport transform
-        obj->transformed_vertices[i][0] = (projected[0] / (projected[2] * aspect) + 1.0) * WIDTH / 2.0;
-        obj->transformed_vertices[i][1] = (projected[1] / projected[2] + 1.0) * HEIGHT / 2.0;
-        obj->transformed_vertices[i][2] = projected[2];
+        // Convert to screen coordinates
+        obj->transformed_vertices[i][0] = (px / ASPECT_RATIO + 1.0) * WIDTH / 2.0;
+        obj->transformed_vertices[i][1] = (py + 1.0) * HEIGHT / 2.0;
+        obj->transformed_vertices[i][2] = tz;
     }
 }
 
