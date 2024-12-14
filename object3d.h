@@ -9,7 +9,7 @@ typedef struct {
     int (*triangles)[3];
     int (*texcoord_indices)[3];
     int num_vertices;
-    int num_texcoords;
+    int num_texcoords; 
     int num_triangles;
     unsigned char *texture_data;
     int texture_width;
@@ -18,8 +18,7 @@ typedef struct {
     double model_matrix[4][4];
 } Object3D;
 
-
-Object3D* create_object(const char* obj_file, const char* texture_file) {
+static inline Object3D* create_object(const char* obj_file, const char* texture_file) {
     Object3D* obj = malloc(sizeof(Object3D));
     
     obj->vertices = malloc(100000 * sizeof(*obj->vertices));
@@ -28,6 +27,7 @@ Object3D* create_object(const char* obj_file, const char* texture_file) {
     obj->texcoords = malloc(100000 * sizeof(*obj->texcoords));
     obj->triangles = malloc(200000 * sizeof(*obj->triangles));
     obj->texcoord_indices = malloc(200000 * sizeof(*obj->texcoord_indices));
+    
     obj->num_vertices = 0;
     obj->num_texcoords = 0;
     obj->num_triangles = 0;
@@ -40,13 +40,12 @@ Object3D* create_object(const char* obj_file, const char* texture_file) {
                                 &obj->texture_height, &obj->texture_channels);
     
     matrix_identity(obj->model_matrix);
-    
     return obj;
 }
 
-void free_object(Object3D* obj) {
+static inline void free_object(Object3D* obj) {
     free(obj->vertices);
-    free(obj->initial_vertices);
+    free(obj->initial_vertices); 
     free(obj->transformed_vertices);
     free(obj->texcoords);
     free(obj->triangles);
@@ -55,4 +54,4 @@ void free_object(Object3D* obj) {
     free(obj);
 }
 
-#endif /* OBJECT3D_H */
+#endif
