@@ -26,10 +26,6 @@ void sample_texture(double u, double v, double color[3], unsigned char *texture_
     int x = (int)(u * (texture_width - 1));
     int y = (int)(v * (texture_height - 1));
     int idx = (y * texture_width + x) * 3;
-    if (idx < 0 || idx >= texture_width * texture_height * 3) {
-        fprintf(stderr, "Texture index out of bounds: %d\n", idx);
-        return;
-    }
     color[0] = texture_data[idx] / 255.0;
     color[1] = texture_data[idx + 1] / 255.0;
     color[2] = texture_data[idx + 2] / 255.0;
