@@ -19,16 +19,17 @@
 #define FAR_PLANE 100.0
 
 void sample_texture(double u, double v, double color[3], unsigned char *texture_data, int texture_width, int texture_height) {
-    u = fmod(u, 1.0); if (u < 0) u += 1.0;
-    v = fmod(v, 1.0); if (v < 0) v += 1.0;
-    u = fmin(fmax(u, 0.0), 1.0);
-    v = 1.0 - fmin(fmax(v, 0.0), 1.0);
-    int x = (int)(u * (texture_width - 1));
-    int y = (int)(v * (texture_height - 1));
+    u = u - floor(u);
+    v = 1.0 - (v - floor(v));
+    int x = (int)(u * texture_width);
+    int y = (int)(v * texture_height);
+    x = (x < 0) ? 0 : (x >= texture_width ? texture_width - 1 : x);
+    y = (y < 0) ? 0 : (y >= texture_height ? texture_height - 1 : y);
     int idx = (y * texture_width + x) * 3;
-    color[0] = texture_data[idx] / 255.0;
-    color[1] = texture_data[idx + 1] / 255.0;
-    color[2] = texture_data[idx + 2] / 255.0;
+    static const double inv255 = 1.0 / 255.0;
+    color[0] = texture_data[idx] * inv255;
+    color[1] = texture_data[idx + 1] * inv255;
+    color[2] = texture_data[idx + 2] * inv255;
 }
 
 void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
