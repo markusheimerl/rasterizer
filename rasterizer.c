@@ -110,55 +110,47 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
 
 void update_object_vertices(Object3D* obj) {
     // Create projection matrix
-    double projection[4][4] = {0};
-    const double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
-    projection[0][0] = f / ASPECT_RATIO;
-    projection[1][1] = f;
-    projection[2][2] = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
-    projection[2][3] = -(2 * FAR_PLANE * NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
-    projection[3][2] = 1.0;
+    double projection[4][4] = {
+        {1.0 / (ASPECT_RATIO * tan(FOV_Y * M_PI / 360.0)), 0, 0, 0},
+        {0, 1.0 / tan(FOV_Y * M_PI / 360.0), 0, 0},
+        {0, 0, (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE), 
+            -(2 * FAR_PLANE * NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE)},
+        {0, 0, 1.0, 0}
+    };
 
-    // Create viewport transformation matrix
-    double viewport[4][4] = {0};
-    viewport[0][0] = -WIDTH / 2.0;  // Note the negative sign here
-    viewport[1][1] = -HEIGHT / 2.0;
-    viewport[2][2] = 1.0;
-    viewport[0][3] = WIDTH / 2.0;
-    viewport[1][3] = HEIGHT / 2.0;
-    viewport[3][3] = 1.0;
+    // Create viewport matrix
+    double viewport[4][4] = {
+        {-WIDTH / 2.0, 0, 0, WIDTH / 2.0},
+        {0, -HEIGHT / 2.0, 0, HEIGHT / 2.0},
+        {0, 0, 1.0, 0},
+        {0, 0, 0, 1.0}
+    };
 
-    // Combined MVP matrix (Model * View * Projection)
-    double mvp[4][4];
+    // Compute final transformation matrix (MVP * Viewport)
+    double mvp[4][4], final[4][4];
     matrix_multiply(projection, obj->model_matrix, mvp);
-
-    // Final transformation matrix (MVP * Viewport)
-    double final[4][4];
     matrix_multiply(viewport, mvp, final);
 
+    // Transform all vertices
     for (int i = 0; i < obj->num_vertices; i++) {
-        double vertex[4] = {
-            obj->initial_vertices[i][0],
-            obj->initial_vertices[i][1],
-            obj->initial_vertices[i][2],
-            1.0
-        };
-
-        double result[4] = {0};
-        for (int row = 0; row < 4; row++) {
-            for (int col = 0; col < 4; col++) {
-                result[row] += final[row][col] * vertex[col];
-            }
+        const double* vertex = obj->initial_vertices[i];
+        double* transformed = obj->transformed_vertices[i];
+        
+        // Apply transformation
+        double w = final[3][0] * vertex[0] + final[3][1] * vertex[1] + 
+                  final[3][2] * vertex[2] + final[3][3];
+        
+        if (fabs(w) > 1e-6) {
+            double inv_w = 1.0 / w;
+            transformed[0] = (final[0][0] * vertex[0] + final[0][1] * vertex[1] + 
+                            final[0][2] * vertex[2] + final[0][3]) * inv_w;
+            transformed[1] = (final[1][0] * vertex[0] + final[1][1] * vertex[1] + 
+                            final[1][2] * vertex[2] + final[1][3]) * inv_w;
+            transformed[2] = (final[2][0] * vertex[0] + final[2][1] * vertex[1] + 
+                            final[2][2] * vertex[2] + final[2][3]) * inv_w;
+        } else {
+            transformed[0] = transformed[1] = transformed[2] = 0;
         }
-
-        if (fabs(result[3]) > 1e-6) {
-            result[0] /= result[3];
-            result[1] /= result[3];
-            result[2] /= result[3];
-        }
-
-        obj->transformed_vertices[i][0] = result[0];
-        obj->transformed_vertices[i][1] = result[1];
-        obj->transformed_vertices[i][2] = result[2];
     }
 }
 
