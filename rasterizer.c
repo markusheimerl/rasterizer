@@ -140,46 +140,54 @@ void update_object_vertices(Object3D* obj) {
 }
 
 int main() {
-    Object3D* drone = create_object("drone.obj", "drone.bmp");
-    Object3D* ground = create_object("ground.obj", "ground.bmp");
-
-    // Set up initial transformations
-    matrix_translate(ground->model_matrix, 0.0, -1.0, 3.0);
-    matrix_scale(ground->model_matrix, 30.0);
-
-    Object3D* objects[] = {drone, ground};
-    int num_objects = sizeof(objects) / sizeof(objects[0]);
-
-    uint8_t *image = malloc(WIDTH * HEIGHT * 3);
-
+    // Initialize objects
+    Object3D* objects[] = {
+        create_object("drone.obj", "drone.bmp"),
+        create_object("ground.obj", "ground.bmp")
+    };
+    const int num_objects = sizeof(objects) / sizeof(objects[0]);
+    
+    // Set up initial ground transformation
+    matrix_translate(objects[1]->model_matrix, 0.0, -1.0, 3.0);
+    matrix_scale(objects[1]->model_matrix, 30.0);
+    
+    // Initialize rendering resources
+    uint8_t *image = calloc(WIDTH * HEIGHT * 3, sizeof(uint8_t));
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 3, -1, 0);
-    double angle_per_frame = (2.0 * M_PI) / FRAMES;
-
-    for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
-        printf("Rendering frame %d/%d\n", frame_num + 1, FRAMES);
+    
+    // Animation parameters
+    const double angle_per_frame = (2.0 * M_PI) / FRAMES;
+    
+    // Render animation frames
+    for (int frame = 0; frame < FRAMES; frame++) {
+        printf("Rendering frame %d/%d\n", frame + 1, FRAMES);
         
+        // Clear frame buffer
         memset(image, 0, WIDTH * HEIGHT * 3);
         
-        // Update drone's transformation
+        // Update drone transformation
+        Object3D *drone = objects[0];
         matrix_identity(drone->model_matrix);
         matrix_translate(drone->model_matrix, 0.0, 0.5, 3.0);
         matrix_scale(drone->model_matrix, 1.0);
-        matrix_rotate_y(drone->model_matrix, frame_num * angle_per_frame);
+        matrix_rotate_y(drone->model_matrix, frame * angle_per_frame);
         
-        // Update vertices for all objects
+        // Update and render all objects
         for (int i = 0; i < num_objects; i++) {
             update_object_vertices(objects[i]);
         }
-        
         render_frame(image, objects, num_objects);
+        
+        // Add frame to GIF
         ge_add_frame(gif, image, 6);
     }
-
+    
+    // Cleanup
     ge_close_gif(gif);
     free(image);
     for (int i = 0; i < num_objects; i++) {
         free_object(objects[i]);
     }
-
+    
     return 0;
 }
