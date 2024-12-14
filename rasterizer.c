@@ -77,9 +77,7 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
                         lambda1 >= 0 && lambda1 <= 1 && 
                         lambda2 >= 0 && lambda2 <= 1) {
                         
-                        double z = 1.0 / (lambda0 * triangle[0][3] + 
-                                        lambda1 * triangle[1][3] + 
-                                        lambda2 * triangle[2][3]);
+                        double z = lambda0 * triangle[0][2] + lambda1 * triangle[1][2] + lambda2 * triangle[2][2];
                         
                         int idx = y * WIDTH + x;
                         if (z < depth_buffer[idx]) {
@@ -184,7 +182,7 @@ int main() {
         Object3D *drone = objects[0];
         matrix_identity(drone->model_matrix);
         matrix_translate(drone->model_matrix, 0.0, 0.5, 2.0);
-        matrix_scale(drone->model_matrix, 0.5);
+        matrix_scale(drone->model_matrix, 1.0);
         matrix_rotate_y(drone->model_matrix, frame * angle_per_frame);
         
         // Update and render all objects
