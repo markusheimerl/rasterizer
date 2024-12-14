@@ -22,7 +22,7 @@ typedef struct ge_GIF {
     uint8_t *frame, *back;
     uint32_t partial;
     uint8_t buffer[0xFF];
-    uint8_t palette[8 * 3];
+    uint8_t palette[16 * 3];
 } ge_GIF;
 
 #define write_num(fd, n) do { \
@@ -90,8 +90,27 @@ static void put_loop(ge_GIF *gif, uint16_t loop) {
     safe_write(gif->fd, "\0", 1);
 }
 
-ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
-                   uint8_t *palette, int depth, int bgindex, int loop) {
+ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height, int depth, int bgindex, int loop) {
+
+    uint8_t palette[16 * 3] = {
+        0x00, 0x00, 0x00,    // Black
+        0xFF, 0x00, 0x00,    // Red
+        0x00, 0xFF, 0x00,    // Green
+        0x00, 0x00, 0xFF,    // Blue
+        0xFF, 0xFF, 0x00,    // Yellow
+        0xFF, 0x00, 0xFF,    // Magenta
+        0x00, 0xFF, 0xFF,    // Cyan
+        0xFF, 0xFF, 0xFF,    // White
+        0x80, 0x80, 0x80,    // Gray
+        0x80, 0x00, 0x00,    // Dark Red
+        0x00, 0x80, 0x00,    // Dark Green
+        0x00, 0x00, 0x80,    // Dark Blue
+        0x80, 0x80, 0x00,    // Dark Yellow
+        0x80, 0x00, 0x80,    // Dark Magenta
+        0x00, 0x80, 0x80,    // Dark Cyan
+        0xC0, 0xC0, 0xC0     // Light Gray
+    };
+
     ge_GIF *gif = calloc(1, sizeof(*gif) + (bgindex < 0 ? 2 : 1) * width * height);
     if (!gif) return NULL;
 
@@ -101,7 +120,7 @@ ge_GIF *ge_new_gif(const char *fname, uint16_t width, uint16_t height,
     gif->back = &gif->frame[width * height];
     gif->fd = creat(fname, 0666);
     if (gif->fd == -1) { free(gif); return NULL; }
-    if (palette) memcpy(gif->palette, palette, 8 * 3);
+    if (palette) memcpy(gif->palette, palette, sizeof(gif->palette));
 
     safe_write(gif->fd, "GIF89a", 6);
     write_num(gif->fd, width);

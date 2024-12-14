@@ -158,18 +158,7 @@ int main() {
 
     uint8_t *image = malloc(WIDTH * HEIGHT * 3);
 
-    uint8_t palette[8 * 3] = {
-        0x00, 0x00, 0x00, 
-        0xFF, 0x00, 0x00, 
-        0x00, 0xFF, 0x00, 
-        0x00, 0x00, 0xFF, 
-        0xFF, 0xFF, 0x00, 
-        0xFF, 0x00, 0xFF, 
-        0x00, 0xFF, 0xFF, 
-        0xFF, 0xFF, 0xFF
-    };
-    
-    ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, palette, 3, -1, 0);
+    ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 3, -1, 0);
     double angle_per_frame = (2.0 * M_PI) / FRAMES;
 
     for (int frame_num = 0; frame_num < FRAMES; frame_num++) {
