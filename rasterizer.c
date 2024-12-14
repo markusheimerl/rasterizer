@@ -109,33 +109,31 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
 }
 
 void update_object_vertices(Object3D* obj) {
-    // Convert FOV to a scaling factor
-    double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
+    const double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
     
     for (int i = 0; i < obj->num_vertices; i++) {
-        double x = obj->initial_vertices[i][0];
-        double y = obj->initial_vertices[i][1];
-        double z = obj->initial_vertices[i][2];
+        const double* v = obj->initial_vertices[i];
+        double* transformed = obj->transformed_vertices[i];
         
-        // Apply model transformation (stored in model_matrix)
-        double tx = obj->model_matrix[0][0] * x + obj->model_matrix[0][1] * y + 
-                   obj->model_matrix[0][2] * z + obj->model_matrix[0][3];
-        double ty = obj->model_matrix[1][0] * x + obj->model_matrix[1][1] * y + 
-                   obj->model_matrix[1][2] * z + obj->model_matrix[1][3];
-        double tz = obj->model_matrix[2][0] * x + obj->model_matrix[2][1] * y + 
-                   obj->model_matrix[2][2] * z + obj->model_matrix[2][3];
+        // Apply model transformation
+        double tx = obj->model_matrix[0][0] * v[0] + obj->model_matrix[0][1] * v[1] + 
+                   obj->model_matrix[0][2] * v[2] + obj->model_matrix[0][3];
+        double ty = obj->model_matrix[1][0] * v[0] + obj->model_matrix[1][1] * v[1] + 
+                   obj->model_matrix[1][2] * v[2] + obj->model_matrix[1][3];
+        double tz = obj->model_matrix[2][0] * v[0] + obj->model_matrix[2][1] * v[1] + 
+                   obj->model_matrix[2][2] * v[2] + obj->model_matrix[2][3];
         
         // Ensure minimum z distance
         tz = fmax(tz, NEAR_PLANE);
         
-        // Simple perspective projection
+        // Perspective projection
         double px = -f * tx / tz;
         double py = -f * ty / tz;
         
         // Convert to screen coordinates
-        obj->transformed_vertices[i][0] = (px / ASPECT_RATIO + 1.0) * WIDTH / 2.0;
-        obj->transformed_vertices[i][1] = (py + 1.0) * HEIGHT / 2.0;
-        obj->transformed_vertices[i][2] = tz;
+        transformed[0] = (px / ASPECT_RATIO + 1.0) * WIDTH / 2.0;
+        transformed[1] = (py + 1.0) * HEIGHT / 2.0;
+        transformed[2] = tz;
     }
 }
 
