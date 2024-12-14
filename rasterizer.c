@@ -35,7 +35,7 @@ void sample_texture(double u, double v, double color[3], unsigned char *texture_
 void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
     double *depth_buffer = calloc(WIDTH * HEIGHT, sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        depth_buffer[i] = DBL_MAX;
+        depth_buffer[i] = -DBL_MAX;
     }
     for (int obj_idx = 0; obj_idx < num_objects; obj_idx++) {
         Object3D *obj = objects[obj_idx];
@@ -80,7 +80,7 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
                         double z = lambda0 * triangle[0][2] + lambda1 * triangle[1][2] + lambda2 * triangle[2][2];
                         
                         int idx = y * WIDTH + x;
-                        if (z < depth_buffer[idx]) {
+                        if (z > depth_buffer[idx]) {
                             depth_buffer[idx] = z;
                             
                             double u = (lambda0 * uv[0][0] * triangle[0][3] + 
@@ -107,19 +107,18 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
 }
 
 void update_object_vertices(Object3D* obj) {
-    // Create projection matrix
+    double f = 1.0 / tan(FOV_Y * M_PI / 360.0);
     double projection[4][4] = {
-        {1.0 / (ASPECT_RATIO * tan(FOV_Y * M_PI / 360.0)), 0, 0, 0},
-        {0, 1.0 / tan(FOV_Y * M_PI / 360.0), 0, 0},
-        {0, 0, (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE), 
-            -(2 * FAR_PLANE * NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE)},
-        {0, 0, 1.0, 0}
+        {f / ASPECT_RATIO, 0, 0, 0},
+        {0, f, 0, 0},
+        {0, 0, (FAR_PLANE + NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE), 
+            (2 * FAR_PLANE * NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE)},
+        {0, 0, -1, 0}
     };
 
-    // Create viewport matrix
     double viewport[4][4] = {
-        {-WIDTH / 2.0, 0, 0, WIDTH / 2.0},
-        {0, -HEIGHT / 2.0, 0, HEIGHT / 2.0},
+        {WIDTH / 2.0, 0, 0, WIDTH / 2.0},
+        {0, HEIGHT / 2.0, 0, HEIGHT / 2.0},
         {0, 0, 1.0, 0},
         {0, 0, 0, 1.0}
     };
@@ -135,17 +134,20 @@ void update_object_vertices(Object3D* obj) {
         double* transformed = obj->transformed_vertices[i];
         
         // Apply transformation
+        double x = final[0][0] * vertex[0] + final[0][1] * vertex[1] + 
+                  final[0][2] * vertex[2] + final[0][3];
+        double y = final[1][0] * vertex[0] + final[1][1] * vertex[1] + 
+                  final[1][2] * vertex[2] + final[1][3];
+        double z = final[2][0] * vertex[0] + final[2][1] * vertex[1] + 
+                  final[2][2] * vertex[2] + final[2][3];
         double w = final[3][0] * vertex[0] + final[3][1] * vertex[1] + 
                   final[3][2] * vertex[2] + final[3][3];
         
         if (fabs(w) > 1e-6) {
             double inv_w = 1.0 / w;
-            transformed[0] = (final[0][0] * vertex[0] + final[0][1] * vertex[1] + 
-                            final[0][2] * vertex[2] + final[0][3]) * inv_w;
-            transformed[1] = (final[1][0] * vertex[0] + final[1][1] * vertex[1] + 
-                            final[1][2] * vertex[2] + final[1][3]) * inv_w;
-            transformed[2] = (final[2][0] * vertex[0] + final[2][1] * vertex[1] + 
-                            final[2][2] * vertex[2] + final[2][3]) * inv_w;
+            transformed[0] = x * inv_w;
+            transformed[1] = y * inv_w;
+            transformed[2] = z * inv_w;
         } else {
             transformed[0] = transformed[1] = transformed[2] = 0;
         }
