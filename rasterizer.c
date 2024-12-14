@@ -109,31 +109,56 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
 }
 
 void update_object_vertices(Object3D* obj) {
+    // Create projection matrix
+    double projection[4][4] = {0};
     const double f = 1.0 / tan((FOV_Y * M_PI / 180.0) / 2.0);
-    
+    projection[0][0] = f / ASPECT_RATIO;
+    projection[1][1] = f;
+    projection[2][2] = (FAR_PLANE + NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
+    projection[2][3] = -(2 * FAR_PLANE * NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE);
+    projection[3][2] = 1.0;
+
+    // Create viewport transformation matrix
+    double viewport[4][4] = {0};
+    viewport[0][0] = -WIDTH / 2.0;  // Note the negative sign here
+    viewport[1][1] = -HEIGHT / 2.0;
+    viewport[2][2] = 1.0;
+    viewport[0][3] = WIDTH / 2.0;
+    viewport[1][3] = HEIGHT / 2.0;
+    viewport[3][3] = 1.0;
+
+    // Combined MVP matrix (Model * View * Projection)
+    double mvp[4][4];
+    matrix_multiply(projection, obj->model_matrix, mvp);
+
+    // Final transformation matrix (MVP * Viewport)
+    double final[4][4];
+    matrix_multiply(viewport, mvp, final);
+
     for (int i = 0; i < obj->num_vertices; i++) {
-        const double* v = obj->initial_vertices[i];
-        double* transformed = obj->transformed_vertices[i];
-        
-        // Apply model transformation
-        double tx = obj->model_matrix[0][0] * v[0] + obj->model_matrix[0][1] * v[1] + 
-                   obj->model_matrix[0][2] * v[2] + obj->model_matrix[0][3];
-        double ty = obj->model_matrix[1][0] * v[0] + obj->model_matrix[1][1] * v[1] + 
-                   obj->model_matrix[1][2] * v[2] + obj->model_matrix[1][3];
-        double tz = obj->model_matrix[2][0] * v[0] + obj->model_matrix[2][1] * v[1] + 
-                   obj->model_matrix[2][2] * v[2] + obj->model_matrix[2][3];
-        
-        // Ensure minimum z distance
-        tz = fmax(tz, NEAR_PLANE);
-        
-        // Perspective projection
-        double px = -f * tx / tz;
-        double py = -f * ty / tz;
-        
-        // Convert to screen coordinates
-        transformed[0] = (px / ASPECT_RATIO + 1.0) * WIDTH / 2.0;
-        transformed[1] = (py + 1.0) * HEIGHT / 2.0;
-        transformed[2] = tz;
+        double vertex[4] = {
+            obj->initial_vertices[i][0],
+            obj->initial_vertices[i][1],
+            obj->initial_vertices[i][2],
+            1.0
+        };
+
+        double result[4] = {0};
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 4; col++) {
+                result[row] += final[row][col] * vertex[col];
+            }
+        }
+
+        if (fabs(result[3]) > 1e-6) {
+            result[0] /= result[3];
+            result[1] /= result[3];
+            result[2] /= result[3];
+        }
+
+        obj->transformed_vertices[i][0] = result[0];
+        obj->transformed_vertices[i][1] = result[1];
+        obj->transformed_vertices[i][2] = result[2];
     }
 }
 
@@ -146,8 +171,8 @@ int main() {
     const int num_objects = sizeof(objects) / sizeof(objects[0]);
     
     // Set up initial ground transformation
-    matrix_translate(objects[1]->model_matrix, 0.0, -1.0, 3.0);
-    matrix_scale(objects[1]->model_matrix, 30.0);
+    matrix_translate(objects[1]->model_matrix, 0.0, -0.5, 2.0);
+    matrix_scale(objects[1]->model_matrix, 1.0);
     
     // Initialize rendering resources
     uint8_t *image = calloc(WIDTH * HEIGHT * 3, sizeof(uint8_t));
@@ -166,8 +191,8 @@ int main() {
         // Update drone transformation
         Object3D *drone = objects[0];
         matrix_identity(drone->model_matrix);
-        matrix_translate(drone->model_matrix, 0.0, 0.5, 3.0);
-        matrix_scale(drone->model_matrix, 1.0);
+        matrix_translate(drone->model_matrix, 0.0, 0.5, 2.0);
+        matrix_scale(drone->model_matrix, 0.5);
         matrix_rotate_y(drone->model_matrix, frame * angle_per_frame);
         
         // Update and render all objects
