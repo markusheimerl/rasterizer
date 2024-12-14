@@ -57,4 +57,4 @@ void matrix_rotate_y(double m[4][4], double angle) {
     matrix_multiply(m, r, m);
 }
 
-#endif /* GIF_H */
+#endif /* MAT_H */
