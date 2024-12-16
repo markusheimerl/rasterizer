@@ -106,7 +106,7 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
     free(depth_buffer);
 }
 
-void update_object_vertices(Object3D* obj) {
+void update_object_vertices(Object3D* obj, double view_matrix[4][4]) {
     double f = 1.0 / tan(FOV_Y * M_PI / 360.0);
     double projection[4][4] = {
         {f / ASPECT_RATIO, 0, 0, 0},
@@ -123,9 +123,13 @@ void update_object_vertices(Object3D* obj) {
         {0, 0, 0, 1.0}
     };
 
+    // Compute model-view matrix
+    double modelview[4][4];
+    matrix_multiply(view_matrix, obj->model_matrix, modelview);
+
     // Compute final transformation matrix (MVP * Viewport)
     double mvp[4][4], final[4][4];
-    matrix_multiply(projection, obj->model_matrix, mvp);
+    matrix_multiply(projection, modelview, mvp);
     matrix_multiply(viewport, mvp, final);
 
     // Transform all vertices
@@ -173,6 +177,11 @@ int main() {
     // Animation parameters
     const double angle_per_frame = (2.0 * M_PI) / FRAMES;
     
+    // Camera parameters
+    double camera_pos[3] = {0.0, 0.0, 0.0};  // Position the camera above and behind
+    double camera_target[3] = {0.0, 0.0, 1.0}; // Look at the center of the scene
+    double camera_up[3] = {0.0, 1.0, 0.0};    // Up vector
+    
     // Render animation frames
     for (int frame = 0; frame < FRAMES; frame++) {
         printf("Rendering frame %d/%d\n", frame + 1, FRAMES);
@@ -187,9 +196,48 @@ int main() {
         matrix_scale(drone->model_matrix, 1.0);
         matrix_rotate_y(drone->model_matrix, frame * angle_per_frame);
         
+        // Calculate view matrix
+        double view_matrix[4][4];
+   
+        // Create look-at matrix
+        double z_axis[3] = {
+            camera_target[0] - camera_pos[0],
+            camera_target[1] - camera_pos[1],
+            camera_target[2] - camera_pos[2]
+        };
+        normalize_vector(z_axis);
+        
+        double x_axis[3];
+        cross_product(camera_up, z_axis, x_axis);
+        normalize_vector(x_axis);
+        
+        double y_axis[3];
+        cross_product(z_axis, x_axis, y_axis);
+        
+        // Build view matrix
+        view_matrix[0][0] = x_axis[0];
+        view_matrix[0][1] = x_axis[1];
+        view_matrix[0][2] = x_axis[2];
+        view_matrix[0][3] = -dot_product(x_axis, camera_pos);
+        
+        view_matrix[1][0] = y_axis[0];
+        view_matrix[1][1] = y_axis[1];
+        view_matrix[1][2] = y_axis[2];
+        view_matrix[1][3] = -dot_product(y_axis, camera_pos);
+        
+        view_matrix[2][0] = z_axis[0];
+        view_matrix[2][1] = z_axis[1];
+        view_matrix[2][2] = z_axis[2];
+        view_matrix[2][3] = -dot_product(z_axis, camera_pos);
+        
+        view_matrix[3][0] = 0.0;
+        view_matrix[3][1] = 0.0;
+        view_matrix[3][2] = 0.0;
+        view_matrix[3][3] = 1.0;
+        
         // Update and render all objects
         for (int i = 0; i < num_objects; i++) {
-            update_object_vertices(objects[i]);
+            update_object_vertices(objects[i], view_matrix);
         }
         render_frame(image, objects, num_objects);
         
