@@ -149,6 +149,11 @@ void update_object_vertices(Object3D* obj, double view_matrix[4][4]) {
         const double w = final_transform[3][0] * vertex[0] + final_transform[3][1] * vertex[1] + 
                         final_transform[3][2] * vertex[2] + final_transform[3][3];
 
+        if (z > -NEAR_PLANE * w) {
+            transformed[0] = transformed[1] = transformed[2] = DBL_MAX;
+            continue;
+        }
+
         // Perform perspective division
         if (fabs(w) > 1e-6) {
             const double inv_w = 1.0 / w;
