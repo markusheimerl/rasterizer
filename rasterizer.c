@@ -201,7 +201,7 @@ int main() {
         Object3D *drone = objects[0];
         matrix_identity(drone->model_matrix);
         matrix_translate(drone->model_matrix, 0.0, 0.5, 2.0);
-        matrix_scale(drone->model_matrix, 1.0);
+        matrix_scale(drone->model_matrix, 0.5);
         matrix_rotate_y(drone->model_matrix, frame * angle_per_frame);
         
         // Calculate view matrix
