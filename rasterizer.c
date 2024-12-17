@@ -178,8 +178,8 @@ int main() {
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 3, -1, 0);
     
     // Define camera setup
-    double camera_pos[3] = {0.0, 0.0, -2.0};
-    double camera_target[3] = {0.0, 0.0, 1.0};
+    double camera_pos[3] = {-2.0, 2.0, -2.0};
+    double camera_target[3] = {0.0, 0.0, 0.0};
     double camera_up[3] = {0.0, 1.0, 0.0};
     
     // Animation parameters
