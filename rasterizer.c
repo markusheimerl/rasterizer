@@ -170,7 +170,7 @@ int main() {
     const int num_objects = sizeof(objects) / sizeof(objects[0]);
     
     // Set up static ground object
-    matrix_translate(objects[1]->model_matrix, 0.0, -0.5, 2.0);
+    matrix_translate(objects[1]->model_matrix, 0.0, -0.5, 0.0);
     matrix_scale(objects[1]->model_matrix, 1.0);
     
     // Initialize rendering context
@@ -178,7 +178,7 @@ int main() {
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 3, -1, 0);
     
     // Define camera setup
-    double camera_pos[3] = {0.0, 0.0, 0.0};
+    double camera_pos[3] = {0.0, 0.0, -2.0};
     double camera_target[3] = {0.0, 0.0, 1.0};
     double camera_up[3] = {0.0, 1.0, 0.0};
     
@@ -195,7 +195,7 @@ int main() {
         // Update drone transformation for this frame
         Object3D *drone = objects[0];
         matrix_identity(drone->model_matrix);
-        matrix_translate(drone->model_matrix, 0.0, 0.5, 2.0);
+        matrix_translate(drone->model_matrix, 0.0, 0.5, 0.0);
         matrix_scale(drone->model_matrix, 0.5);
         matrix_rotate_y(drone->model_matrix, frame * angle_per_frame);
         
