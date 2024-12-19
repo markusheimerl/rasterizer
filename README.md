@@ -1,2 +1,2 @@
-# wsim
-A wasm uav simulator
+# rasterizer
+A minimal rasterizer without dependencies
