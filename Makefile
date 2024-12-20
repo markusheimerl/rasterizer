@@ -1,9 +1,7 @@
-# Makefile for rasterizer program
-
 # Compiler and flags
 CC = gcc
-CFLAGS = -O3
-LDFLAGS = -lm
+CFLAGS = -O3 -march=native -ffast-math -funroll-loops -flto
+LDFLAGS = -lm -flto
 
 # Target and source
 TARGET = a.out
