@@ -1,13 +1,10 @@
-#include "gif.h"
-#include "bmp.h"
-#include "obj.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <float.h>
-
-// gcc -O3 rasterizer.c -lm && ./a.out
+#include "gif.h"
+#include "bmp.h"
+#include "obj.h"
 
 #define WIDTH 640
 #define HEIGHT 480
