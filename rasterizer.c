@@ -19,29 +19,15 @@
 #define VEC_NORM(v) { double l=sqrt(VEC_DOT(v,v)); if(l>0) { (v)[0]/=l; (v)[1]/=l; (v)[2]/=l; } }
 
 typedef struct {
-    // Vertex data
-    double* vertices;           // Current vertices
-    double* initial_vertices;   // Original vertices
-    double* transformed_vertices; // Vertices after transformation
-    int vertex_count;
-
-    // Texture coordinate data
-    double* texcoords;         // UV coordinates
-    int texcoord_count;
-
-    // Index data
-    int* triangles;            // Triangle indices
-    int* texcoord_indices;     // UV coordinate indices
-    int triangle_count;
-
-    // Texture data
+    double* vertices;
+    double* initial_vertices;
+    double* texcoords;
+    int* triangles;
+    int* texcoord_indices;
     unsigned char* texture_data;
-    int texture_width;
-    int texture_height;
-    int texture_channels;
-
-    // Transform
-    double transform[4][4];    // Model matrix
+    double transform[4][4];
+    int counts[3];
+    int texture_dims[2];
 } Mesh;
 
 void transform_mesh(Mesh* mesh, double translate[3], double scale, double rotate_y) {
@@ -70,7 +56,6 @@ Mesh* create_mesh(const char* obj_file, const char* texture_file) {
     // Allocate memory for mesh data
     mesh->vertices = malloc(MAX_VERTICES * 3 * sizeof(double));
     mesh->initial_vertices = malloc(MAX_VERTICES * 3 * sizeof(double));
-    mesh->transformed_vertices = malloc(MAX_VERTICES * 3 * sizeof(double));
     mesh->texcoords = malloc(MAX_VERTICES * 2 * sizeof(double));
     mesh->triangles = malloc(MAX_TRIANGLES * 3 * sizeof(int));
     mesh->texcoord_indices = malloc(MAX_TRIANGLES * 3 * sizeof(int));
@@ -82,15 +67,16 @@ Mesh* create_mesh(const char* obj_file, const char* texture_file) {
             (double(*)[2])mesh->texcoords,
             (int(*)[3])mesh->triangles,
             (int(*)[3])mesh->texcoord_indices,
-            &mesh->vertex_count,
-            &mesh->texcoord_count,
-            &mesh->triangle_count);
+            &mesh->counts[0],  // vertex_count
+            &mesh->counts[1],  // texcoord_count
+            &mesh->counts[2]); // triangle_count
 
     // Load texture
+    int channels;
     mesh->texture_data = load_bmp(texture_file,
-                                 &mesh->texture_width,
-                                 &mesh->texture_height,
-                                 &mesh->texture_channels);
+                                 &mesh->texture_dims[0],
+                                 &mesh->texture_dims[1],
+                                 &channels);
 
     // Initialize transform matrix to identity
     memset(mesh->transform, 0, 16 * sizeof(double));
@@ -103,6 +89,9 @@ Mesh* create_mesh(const char* obj_file, const char* texture_file) {
 }
 
 void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], double camera_up[3]) {
+    // Allocate temporary storage for transformed vertices
+    double* transformed_vertices = malloc(mesh->counts[0] * 3 * sizeof(double));
+    
     // Create view matrix
     double z[3] = {
         camera_target[0]-camera_pos[0],
@@ -136,9 +125,9 @@ void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], 
     };
 
     double (*initial_vertices)[3] = (double(*)[3])mesh->initial_vertices;
-    double (*transformed_vertices)[3] = (double(*)[3])mesh->transformed_vertices;
+    double (*transformed)[3] = (double(*)[3])transformed_vertices;
 
-    for (int i = 0; i < mesh->vertex_count; i++) {
+    for (int i = 0; i < mesh->counts[0]; i++) {
         double vertex[4] = {
             initial_vertices[i][0],
             initial_vertices[i][1],
@@ -169,15 +158,19 @@ void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], 
         
         if (clip_vertex[3] != 0) {
             const double inv_w = 1.0 / clip_vertex[3];
-            transformed_vertices[i][0] = ((clip_vertex[0] * inv_w + 1.0) * 0.5) * WIDTH;
-            transformed_vertices[i][1] = ((clip_vertex[1] * inv_w + 1.0) * 0.5) * HEIGHT;
-            transformed_vertices[i][2] = clip_vertex[2] * inv_w;
+            transformed[i][0] = ((clip_vertex[0] * inv_w + 1.0) * 0.5) * WIDTH;
+            transformed[i][1] = ((clip_vertex[1] * inv_w + 1.0) * 0.5) * HEIGHT;
+            transformed[i][2] = clip_vertex[2] * inv_w;
         } else {
-            transformed_vertices[i][0] = 0;
-            transformed_vertices[i][1] = 0;
-            transformed_vertices[i][2] = 0;
+            transformed[i][0] = 0;
+            transformed[i][1] = 0;
+            transformed[i][2] = 0;
         }
     }
+    
+    // Copy transformed vertices back to mesh->vertices
+    memcpy(mesh->vertices, transformed_vertices, mesh->counts[0] * 3 * sizeof(double));
+    free(transformed_vertices);
 }
 
 void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
@@ -188,20 +181,20 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
 
     for (int mesh_idx = 0; mesh_idx < num_meshes; mesh_idx++) {
         Mesh *mesh = meshes[mesh_idx];
-        double (*transformed_vertices)[3] = (double(*)[3])mesh->transformed_vertices;
+        double (*vertices)[3] = (double(*)[3])mesh->vertices;
         double (*texcoords)[2] = (double(*)[2])mesh->texcoords;
         int (*triangles)[3] = (int(*)[3])mesh->triangles;
         int (*texcoord_indices)[3] = (int(*)[3])mesh->texcoord_indices;
 
-        for (int tri_idx = 0; tri_idx < mesh->triangle_count; tri_idx++) {
+        for (int tri_idx = 0; tri_idx < mesh->counts[2]; tri_idx++) {
             double vertex_pos[3][4];  // x, y, z, w(1/z)
             double vertex_uv[3][2];   // u, v
             
             for (int v = 0; v < 3; v++) {
                 const int vertex_idx = triangles[tri_idx][v];
-                vertex_pos[v][0] = transformed_vertices[vertex_idx][0];
-                vertex_pos[v][1] = transformed_vertices[vertex_idx][1];
-                vertex_pos[v][2] = transformed_vertices[vertex_idx][2];
+                vertex_pos[v][0] = vertices[vertex_idx][0];
+                vertex_pos[v][1] = vertices[vertex_idx][1];
+                vertex_pos[v][2] = vertices[vertex_idx][2];
                 vertex_pos[v][3] = 1.0 / vertex_pos[v][2];
                 
                 const int uv_idx = texcoord_indices[tri_idx][v];
@@ -249,13 +242,13 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
                             u = u - floor(u);
                             v = 1.0 - (v - floor(v));
 
-                            int tx = (int)(u * mesh->texture_width);
-                            int ty = (int)(v * mesh->texture_height);
+                            int tx = (int)(u * mesh->texture_dims[0]);
+                            int ty = (int)(v * mesh->texture_dims[1]);
                             
-                            tx = fmin(fmax(tx, 0), mesh->texture_width - 1);
-                            ty = fmin(fmax(ty, 0), mesh->texture_height - 1);
+                            tx = fmin(fmax(tx, 0), mesh->texture_dims[0] - 1);
+                            ty = fmin(fmax(ty, 0), mesh->texture_dims[1] - 1);
 
-                            int tex_idx = (ty * mesh->texture_width + tx) * 3;
+                            int tex_idx = (ty * mesh->texture_dims[0] + tx) * 3;
                             image[pixel_idx * 3 + 0] = mesh->texture_data[tex_idx + 0];
                             image[pixel_idx * 3 + 1] = mesh->texture_data[tex_idx + 1];
                             image[pixel_idx * 3 + 2] = mesh->texture_data[tex_idx + 2];
@@ -312,7 +305,6 @@ int main() {
         if (meshes[i]) {
             free(meshes[i]->vertices);
             free(meshes[i]->initial_vertices);
-            free(meshes[i]->transformed_vertices);
             free(meshes[i]->texcoords);
             free(meshes[i]->triangles);
             free(meshes[i]->texcoord_indices);
