@@ -83,17 +83,21 @@ Object3D* create_object(const char* obj_file, const char* texture_file) {
 
 void update_vertices(Object3D* obj, double view_matrix[4][4]) {
     // Create perspective projection matrix
-    double f = (1.0 / tan(FOV_Y * M_PI / 360.0));
+    const double fov_rad = FOV_Y * M_PI / 360.0;
+    const double f = 1.0 / tan(fov_rad);
+    const double near_far_factor = (FAR_PLANE + NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE);
+    const double near_far_term = (2 * FAR_PLANE * NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE);
+    
     double proj_matrix[4][4] = {
         {f/ASPECT_RATIO, 0, 0, 0},
         {0, f, 0, 0},
-        {0, 0, (FAR_PLANE+NEAR_PLANE)/(NEAR_PLANE-FAR_PLANE), (2*FAR_PLANE*NEAR_PLANE)/(NEAR_PLANE-FAR_PLANE)},
+        {0, 0, near_far_factor, near_far_term},
         {0, 0, -1, 0}
     };
 
     // Transform each vertex
     for (int i = 0; i < obj->num_vertices; i++) {
-        // Start with initial vertex position
+        // Start with initial vertex position (model space)
         double vertex[4] = {
             obj->initial_vertices[i][0],
             obj->initial_vertices[i][1],
@@ -101,36 +105,39 @@ void update_vertices(Object3D* obj, double view_matrix[4][4]) {
             1.0
         };
         
-        // Apply model transformation
-        double model_vertex[4] = {0};
+        // Apply model transformation (model space -> world space)
+        double world_vertex[4] = {0};
         for (int row = 0; row < 4; row++) {
             for (int col = 0; col < 4; col++) {
-                model_vertex[row] += obj->model_matrix[row][col] * vertex[col];
+                world_vertex[row] += obj->model_matrix[row][col] * vertex[col];
             }
         }
         
-        // Apply view transformation
+        // Apply view transformation (world space -> view space)
         double view_vertex[4] = {0};
         for (int row = 0; row < 4; row++) {
             for (int col = 0; col < 4; col++) {
-                view_vertex[row] += view_matrix[row][col] * model_vertex[col];
+                view_vertex[row] += view_matrix[row][col] * world_vertex[col];
             }
         }
         
-        // Apply perspective projection
-        double proj_vertex[4] = {0};
+        // Apply perspective projection (view space -> clip space)
+        double clip_vertex[4] = {0};
         for (int row = 0; row < 4; row++) {
             for (int col = 0; col < 4; col++) {
-                proj_vertex[row] += proj_matrix[row][col] * view_vertex[col];
+                clip_vertex[row] += proj_matrix[row][col] * view_vertex[col];
             }
         }
         
-        // Perform perspective divide and viewport transformation
-        if (proj_vertex[3] != 0) {
-            obj->transformed_vertices[i][0] = ((proj_vertex[0] / proj_vertex[3] + 1.0) * 0.5) * WIDTH;
-            obj->transformed_vertices[i][1] = ((proj_vertex[1] / proj_vertex[3] + 1.0) * 0.5) * HEIGHT;
-            obj->transformed_vertices[i][2] = proj_vertex[2] / proj_vertex[3];
+        // Perform perspective divide and viewport transformation (clip space -> screen space)
+        if (clip_vertex[3] != 0) {
+            const double inv_w = 1.0 / clip_vertex[3];
+            // Convert from [-1,1] to [0,WIDTH/HEIGHT]
+            obj->transformed_vertices[i][0] = ((clip_vertex[0] * inv_w + 1.0) * 0.5) * WIDTH;
+            obj->transformed_vertices[i][1] = ((clip_vertex[1] * inv_w + 1.0) * 0.5) * HEIGHT;
+            obj->transformed_vertices[i][2] = clip_vertex[2] * inv_w;  // Store normalized depth
         } else {
+            // Handle division by zero case
             obj->transformed_vertices[i][0] = 0;
             obj->transformed_vertices[i][1] = 0;
             obj->transformed_vertices[i][2] = 0;
@@ -139,72 +146,106 @@ void update_vertices(Object3D* obj, double view_matrix[4][4]) {
 }
 
 void render_scene(uint8_t *image, Object3D **objects, int num_objects) {
+    // Initialize depth buffer
     double *depth_buffer = calloc(WIDTH * HEIGHT, sizeof(double));
-    for (int i = 0; i < WIDTH * HEIGHT; i++) depth_buffer[i] = -DBL_MAX;
+    for (int i = 0; i < WIDTH * HEIGHT; i++) {
+        depth_buffer[i] = -DBL_MAX;
+    }
 
+    // Process each object
     for (int obj_idx = 0; obj_idx < num_objects; obj_idx++) {
         Object3D *obj = objects[obj_idx];
 
+        // Process each triangle
         for (int tri_idx = 0; tri_idx < obj->num_triangles; tri_idx++) {
-            double triangle[3][4], uv[3][2];
+            // Setup triangle vertices and UV coordinates
+            double vertex_pos[3][4];  // x, y, z, w(1/z)
+            double vertex_uv[3][2];   // u, v
+            
             for (int v = 0; v < 3; v++) {
-                memcpy(triangle[v], obj->transformed_vertices[obj->triangles[tri_idx][v]], 3 * sizeof(double));
-                triangle[v][3] = 1.0 / triangle[v][2];
-                memcpy(uv[v], obj->texcoords[obj->texcoord_indices[tri_idx][v]], 2 * sizeof(double));
+                // Get vertex position
+                const int vertex_idx = obj->triangles[tri_idx][v];
+                vertex_pos[v][0] = obj->transformed_vertices[vertex_idx][0];
+                vertex_pos[v][1] = obj->transformed_vertices[vertex_idx][1];
+                vertex_pos[v][2] = obj->transformed_vertices[vertex_idx][2];
+                vertex_pos[v][3] = 1.0 / vertex_pos[v][2];  // Store 1/z for perspective correction
+                
+                // Get UV coordinates
+                const int uv_idx = obj->texcoord_indices[tri_idx][v];
+                vertex_uv[v][0] = obj->texcoords[uv_idx][0];
+                vertex_uv[v][1] = obj->texcoords[uv_idx][1];
             }
 
-            // Get triangle bounds
-            int min_x = fmax(0, floor(fmin(fmin(triangle[0][0], triangle[1][0]), triangle[2][0])));
-            int min_y = fmax(0, floor(fmin(fmin(triangle[0][1], triangle[1][1]), triangle[2][1])));
-            int max_x = fmin(WIDTH - 1, ceil(fmax(fmax(triangle[0][0], triangle[1][0]), triangle[2][0])));
-            int max_y = fmin(HEIGHT - 1, ceil(fmax(fmax(triangle[0][1], triangle[1][1]), triangle[2][1])));
+            // Calculate triangle bounds
+            int min_x = fmax(0, floor(fmin(fmin(vertex_pos[0][0], vertex_pos[1][0]), vertex_pos[2][0])));
+            int min_y = fmax(0, floor(fmin(fmin(vertex_pos[0][1], vertex_pos[1][1]), vertex_pos[2][1])));
+            int max_x = fmin(WIDTH - 1, ceil(fmax(fmax(vertex_pos[0][0], vertex_pos[1][0]), vertex_pos[2][0])));
+            int max_y = fmin(HEIGHT - 1, ceil(fmax(fmax(vertex_pos[0][1], vertex_pos[1][1]), vertex_pos[2][1])));
+
+            // Calculate barycentric denominator
+            double bary_denom = ((vertex_pos[1][1] - vertex_pos[2][1]) * (vertex_pos[0][0] - vertex_pos[2][0]) +
+                                (vertex_pos[2][0] - vertex_pos[1][0]) * (vertex_pos[0][1] - vertex_pos[2][1]));
+            
+            if (fabs(bary_denom) < 1e-6) continue;
 
             // Rasterize triangle
             for (int y = min_y; y <= max_y; y++) {
                 for (int x = min_x; x <= max_x; x++) {
-                    double bary_denom = ((triangle[1][1] - triangle[2][1]) * (triangle[0][0] - triangle[2][0]) +
-                                       (triangle[2][0] - triangle[1][0]) * (triangle[0][1] - triangle[2][1]));
-
-                    if (fabs(bary_denom) < 1e-6) continue;
-
-                    double lambda0 = ((triangle[1][1] - triangle[2][1]) * (x - triangle[2][0]) +
-                                     (triangle[2][0] - triangle[1][0]) * (y - triangle[2][1])) / bary_denom;
-                    double lambda1 = ((triangle[2][1] - triangle[0][1]) * (x - triangle[2][0]) +
-                                     (triangle[0][0] - triangle[2][0]) * (y - triangle[2][1])) / bary_denom;
+                    // Calculate barycentric coordinates
+                    double lambda0 = ((vertex_pos[1][1] - vertex_pos[2][1]) * (x - vertex_pos[2][0]) +
+                                    (vertex_pos[2][0] - vertex_pos[1][0]) * (y - vertex_pos[2][1])) / bary_denom;
+                    double lambda1 = ((vertex_pos[2][1] - vertex_pos[0][1]) * (x - vertex_pos[2][0]) +
+                                    (vertex_pos[0][0] - vertex_pos[2][0]) * (y - vertex_pos[2][1])) / bary_denom;
                     double lambda2 = 1.0 - lambda0 - lambda1;
 
-                    if (lambda0 >= 0 && lambda0 <= 1 && lambda1 >= 0 && lambda1 <= 1 && lambda2 >= 0 && lambda2 <=1) {
-                        int idx = y * WIDTH + x;
-                        double z = lambda0 * triangle[0][2] + lambda1 * triangle[1][2] + lambda2 * triangle[2][2];
+                    // Check if point is inside triangle
+                    if (lambda0 >= 0 && lambda0 <= 1 && 
+                        lambda1 >= 0 && lambda1 <= 1 && 
+                        lambda2 >= 0 && lambda2 <= 1) {
+                        
+                        int pixel_idx = y * WIDTH + x;
+                        
+                        // Interpolate Z
+                        double z = lambda0 * vertex_pos[0][2] + 
+                                 lambda1 * vertex_pos[1][2] + 
+                                 lambda2 * vertex_pos[2][2];
 
-                        if (z > depth_buffer[idx]) {
-                            depth_buffer[idx] = z;
+                        // Depth test
+                        if (z > depth_buffer[pixel_idx]) {
+                            depth_buffer[pixel_idx] = z;
 
-                            double u = (lambda0 * uv[0][0] * triangle[0][3] +
-                                       lambda1 * uv[1][0] * triangle[1][3] +
-                                       lambda2 * uv[2][0] * triangle[2][3]) * z;
-                            double v = (lambda0 * uv[0][1] * triangle[0][3] +
-                                       lambda1 * uv[1][1] * triangle[1][3] +
-                                       lambda2 * uv[2][1] * triangle[2][3]) * z;
+                            // Perspective-correct texture coordinate interpolation
+                            double u = (lambda0 * vertex_uv[0][0] * vertex_pos[0][3] +
+                                      lambda1 * vertex_uv[1][0] * vertex_pos[1][3] +
+                                      lambda2 * vertex_uv[2][0] * vertex_pos[2][3]) * z;
+                            double v = (lambda0 * vertex_uv[0][1] * vertex_pos[0][3] +
+                                      lambda1 * vertex_uv[1][1] * vertex_pos[1][3] +
+                                      lambda2 * vertex_uv[2][1] * vertex_pos[2][3]) * z;
 
+                            // Wrap texture coordinates
                             u = u - floor(u);
                             v = 1.0 - (v - floor(v));
 
+                            // Sample texture
                             int tx = (int)(u * obj->texture.width);
                             int ty = (int)(v * obj->texture.height);
+                            
+                            // Clamp texture coordinates
                             tx = fmin(fmax(tx, 0), obj->texture.width - 1);
                             ty = fmin(fmax(ty, 0), obj->texture.height - 1);
 
+                            // Write pixel
                             int tex_idx = (ty * obj->texture.width + tx) * 3;
-                            for (int i = 0; i < 3; i++) {
-                                image[idx * 3 + i] = obj->texture.data[tex_idx + i];
-                            }
+                            image[pixel_idx * 3 + 0] = obj->texture.data[tex_idx + 0];
+                            image[pixel_idx * 3 + 1] = obj->texture.data[tex_idx + 1];
+                            image[pixel_idx * 3 + 2] = obj->texture.data[tex_idx + 2];
                         }
                     }
                 }
             }
         }
     }
+    
     free(depth_buffer);
 }
 
