@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <limits.h>
 #include "gif.h"
 #include "bmp.h"
@@ -41,7 +40,7 @@ typedef struct {
 void transform_object(Object3D* obj, double translate[3], double scale, double rotate_y) {
     double c = cos(rotate_y), s = sin(rotate_y);
     memset(obj->model_matrix, 0, 16 * sizeof(double));
-    
+
     // Combine scale, rotation, and translation into a single matrix
     obj->model_matrix[0][0] = c * scale;
     obj->model_matrix[0][2] = s * scale;
@@ -49,7 +48,7 @@ void transform_object(Object3D* obj, double translate[3], double scale, double r
     obj->model_matrix[2][0] = -s * scale;
     obj->model_matrix[2][2] = c * scale;
     obj->model_matrix[3][3] = 1.0;
-    
+
     obj->model_matrix[0][3] = translate[0];
     obj->model_matrix[1][3] = translate[1];
     obj->model_matrix[2][3] = translate[2];
@@ -70,16 +69,16 @@ Object3D* create_object(const char* obj_file, const char* texture_file) {
     obj->texcoord_indices = obj->triangles + MAX_TRIANGLES;
 
     parse_obj_file(obj_file, obj->vertices, obj->initial_vertices, obj->texcoords,
-                  obj->triangles, obj->texcoord_indices, &obj->num_vertices,
-                  &obj->num_texcoords, &obj->num_triangles);
-    
+                   obj->triangles, obj->texcoord_indices, &obj->num_vertices,
+                   &obj->num_texcoords, &obj->num_triangles);
+
     obj->texture.data = load_bmp(texture_file, &obj->texture.width,
-                                &obj->texture.height, &obj->texture.channels);
-    
+                                 &obj->texture.height, &obj->texture.channels);
+
     memset(obj->model_matrix, 0, 16 * sizeof(double));
-    obj->model_matrix[0][0] = obj->model_matrix[1][1] = 
+    obj->model_matrix[0][0] = obj->model_matrix[1][1] =
     obj->model_matrix[2][2] = obj->model_matrix[3][3] = 1.0;
-    
+
     return obj;
 }
 
@@ -104,8 +103,8 @@ void update_vertices(Object3D* obj, double view_matrix[4][4]) {
     // Combine transformations
     double combined[4][4] = {0};
     double temp[4][4] = {0};
-    
-    // First multiply view and model matrices
+
+    // Model * View
     for(int i = 0; i < 4; i++) {
         for(int j = 0; j < 4; j++) {
             for(int k = 0; k < 4; k++) {
@@ -113,8 +112,8 @@ void update_vertices(Object3D* obj, double view_matrix[4][4]) {
             }
         }
     }
-    
-    // Then multiply by projection
+
+    // (Model * View) * Projection
     for(int i = 0; i < 4; i++) {
         for(int j = 0; j < 4; j++) {
             for(int k = 0; k < 4; k++) {
@@ -122,8 +121,8 @@ void update_vertices(Object3D* obj, double view_matrix[4][4]) {
             }
         }
     }
-    
-    // Finally multiply by viewport
+
+    // ((Model * View) * Projection) * Viewport
     memset(temp, 0, sizeof(temp));
     for(int i = 0; i < 4; i++) {
         for(int j = 0; j < 4; j++) {
@@ -142,7 +141,7 @@ void update_vertices(Object3D* obj, double view_matrix[4][4]) {
             }
             result[j] += temp[j][3];
         }
-        
+
         if (fabs(result[3]) > 1e-6) {
             double inv_w = 1.0 / result[3];
             for (int j = 0; j < 3; j++) {
@@ -160,7 +159,7 @@ void render_scene(uint8_t *image, Object3D **objects, int num_objects) {
 
     for (int obj_idx = 0; obj_idx < num_objects; obj_idx++) {
         Object3D *obj = objects[obj_idx];
-        
+
         for (int tri_idx = 0; tri_idx < obj->num_triangles; tri_idx++) {
             double triangle[3][4], uv[3][2];
             for (int v = 0; v < 3; v++) {
@@ -178,39 +177,39 @@ void render_scene(uint8_t *image, Object3D **objects, int num_objects) {
             // Rasterize triangle
             for (int y = min_y; y <= max_y; y++) {
                 for (int x = min_x; x <= max_x; x++) {
-                    double bary_denom = ((triangle[1][1] - triangle[2][1]) * (triangle[0][0] - triangle[2][0]) + 
+                    double bary_denom = ((triangle[1][1] - triangle[2][1]) * (triangle[0][0] - triangle[2][0]) +
                                        (triangle[2][0] - triangle[1][0]) * (triangle[0][1] - triangle[2][1]));
-                    
+
                     if (fabs(bary_denom) < 1e-6) continue;
-                    
-                    double lambda0 = ((triangle[1][1] - triangle[2][1]) * (x - triangle[2][0]) + 
-                                    (triangle[2][0] - triangle[1][0]) * (y - triangle[2][1])) / bary_denom;
-                    double lambda1 = ((triangle[2][1] - triangle[0][1]) * (x - triangle[2][0]) + 
-                                    (triangle[0][0] - triangle[2][0]) * (y - triangle[2][1])) / bary_denom;
+
+                    double lambda0 = ((triangle[1][1] - triangle[2][1]) * (x - triangle[2][0]) +
+                                     (triangle[2][0] - triangle[1][0]) * (y - triangle[2][1])) / bary_denom;
+                    double lambda1 = ((triangle[2][1] - triangle[0][1]) * (x - triangle[2][0]) +
+                                     (triangle[0][0] - triangle[2][0]) * (y - triangle[2][1])) / bary_denom;
                     double lambda2 = 1.0 - lambda0 - lambda1;
 
-                    if (lambda0 >= 0 && lambda0 <= 1 && lambda1 >= 0 && lambda1 <= 1 && lambda2 >= 0) {
+                    if (lambda0 >= 0 && lambda0 <= 1 && lambda1 >= 0 && lambda1 <= 1 && lambda2 >= 0 && lambda2 <=1) {
                         int idx = y * WIDTH + x;
                         double z = lambda0 * triangle[0][2] + lambda1 * triangle[1][2] + lambda2 * triangle[2][2];
-                        
+
                         if (z > depth_buffer[idx]) {
                             depth_buffer[idx] = z;
-                            
-                            double u = (lambda0 * uv[0][0] * triangle[0][3] + 
-                                      lambda1 * uv[1][0] * triangle[1][3] + 
-                                      lambda2 * uv[2][0] * triangle[2][3]) * z;
-                            double v = (lambda0 * uv[0][1] * triangle[0][3] + 
-                                      lambda1 * uv[1][1] * triangle[1][3] + 
-                                      lambda2 * uv[2][1] * triangle[2][3]) * z;
-                            
+
+                            double u = (lambda0 * uv[0][0] * triangle[0][3] +
+                                       lambda1 * uv[1][0] * triangle[1][3] +
+                                       lambda2 * uv[2][0] * triangle[2][3]) * z;
+                            double v = (lambda0 * uv[0][1] * triangle[0][3] +
+                                       lambda1 * uv[1][1] * triangle[1][3] +
+                                       lambda2 * uv[2][1] * triangle[2][3]) * z;
+
                             u = u - floor(u);
                             v = 1.0 - (v - floor(v));
-                            
+
                             int tx = (int)(u * obj->texture.width);
                             int ty = (int)(v * obj->texture.height);
                             tx = fmin(fmax(tx, 0), obj->texture.width - 1);
                             ty = fmin(fmax(ty, 0), obj->texture.height - 1);
-                            
+
                             int tex_idx = (ty * obj->texture.width + tx) * 3;
                             for (int i = 0; i < 3; i++) {
                                 image[idx * 3 + i] = obj->texture.data[tex_idx + i];
@@ -229,23 +228,23 @@ int main() {
         create_object("drone.obj", "drone.bmp"),
         create_object("ground.obj", "ground.bmp")
     };
-    
+
     uint8_t *frame_buffer = calloc(WIDTH * HEIGHT * 3, sizeof(uint8_t));
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 3, -1, 0);
-    
+
     double camera_pos[3] = {-2.0, 1.0, -2.0};
     double camera_target[3] = {0.0, 0.0, 0.0};
     double camera_up[3] = {0.0, 1.0, 0.0};
 
     for (int frame = 0; frame < FRAMES; frame++) {
         memset(frame_buffer, 0, WIDTH * HEIGHT * 3);
-        
+
         // Update transforms
         double drone_pos[3] = {0.0, 0.5, 0.0};
         double ground_pos[3] = {0.0, -0.5, 0.0};
         transform_object(objects[0], drone_pos, 0.5, frame * (2.0 * M_PI) / FRAMES);
         transform_object(objects[1], ground_pos, 1.0, 0.0);
-        
+
         // Calculate view matrix
         double z[3] = {camera_target[0]-camera_pos[0], camera_target[1]-camera_pos[1], camera_target[2]-camera_pos[2]};
         VEC_NORM(z);
@@ -253,29 +252,29 @@ int main() {
         VEC_CROSS(camera_up, z, x);
         VEC_NORM(x);
         VEC_CROSS(z, x, y);
-        
+
         double view_matrix[4][4] = {
             {x[0], x[1], x[2], -VEC_DOT(x, camera_pos)},
             {y[0], y[1], y[2], -VEC_DOT(y, camera_pos)},
             {z[0], z[1], z[2], -VEC_DOT(z, camera_pos)},
             {0, 0, 0, 1}
         };
-        
+
         for (int i = 0; i < 2; i++) {
             update_vertices(objects[i], view_matrix);
         }
-        
+
         render_scene(frame_buffer, objects, 2);
-        
+
         camera_pos[0] += 0.05;
         camera_pos[2] += 0.05;
         camera_target[0] += 0.05;
         camera_target[2] += 0.05;
-        
+
         ge_add_frame(gif, frame_buffer, 6);
         printf("Rendered frame %d/%d\n", frame + 1, FRAMES);
     }
-    
+
     ge_close_gif(gif);
     free(frame_buffer);
     for (int i = 0; i < 2; i++) {
@@ -287,6 +286,6 @@ int main() {
             free(objects[i]);
         }
     }
-    
+
     return 0;
 }
