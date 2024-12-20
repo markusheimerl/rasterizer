@@ -199,7 +199,7 @@ int main() {
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 3, -1, 0);
     
     // Camera setup
-    double camera_pos[3] = {-2.0, 2.0, -2.0};
+    double camera_pos[3] = {-2.0, 1.0, -2.0};
     double camera_target[3] = {0.0, 0.0, 0.0};
     double camera_up[3] = {0.0, 1.0, 0.0};
     
@@ -220,6 +220,10 @@ int main() {
         // Render frame
         double view_matrix[4][4];
         calculate_view_matrix(camera_pos, camera_target, camera_up, view_matrix);
+        camera_pos[0] += 0.05;
+        camera_pos[2] += 0.05;
+        camera_target[0] += 0.05;
+        camera_target[2] += 0.05;
         
         for (int i = 0; i < num_objects; i++) {
             update_object_vertices(objects[i], view_matrix);
