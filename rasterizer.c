@@ -102,7 +102,27 @@ Mesh* create_mesh(const char* obj_file, const char* texture_file) {
     return mesh;
 }
 
-void update_vertices(Mesh* mesh, double view_matrix[4][4]) {
+void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], double camera_up[3]) {
+    // Create view matrix
+    double z[3] = {
+        camera_target[0]-camera_pos[0],
+        camera_target[1]-camera_pos[1],
+        camera_target[2]-camera_pos[2]
+    };
+    VEC_NORM(z);
+    double x[3], y[3];
+    VEC_CROSS(camera_up, z, x);
+    VEC_NORM(x);
+    VEC_CROSS(z, x, y);
+
+    double view_matrix[4][4] = {
+        {x[0], x[1], x[2], -VEC_DOT(x, camera_pos)},
+        {y[0], y[1], y[2], -VEC_DOT(y, camera_pos)},
+        {z[0], z[1], z[2], -VEC_DOT(z, camera_pos)},
+        {0, 0, 0, 1}
+    };
+
+    // Create projection matrix
     const double fov_rad = FOV_Y * M_PI / 360.0;
     const double f = 1.0 / tan(fov_rad);
     const double near_far_factor = (FAR_PLANE + NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE);
@@ -270,26 +290,8 @@ int main() {
         transform_mesh(meshes[0], drone_pos, 0.5, frame * (2.0 * M_PI) / FRAMES);
         transform_mesh(meshes[1], ground_pos, 1.0, 0.0);
 
-        double z[3] = {
-            camera_target[0]-camera_pos[0],
-            camera_target[1]-camera_pos[1],
-            camera_target[2]-camera_pos[2]
-        };
-        VEC_NORM(z);
-        double x[3], y[3];
-        VEC_CROSS(camera_up, z, x);
-        VEC_NORM(x);
-        VEC_CROSS(z, x, y);
-
-        double view_matrix[4][4] = {
-            {x[0], x[1], x[2], -VEC_DOT(x, camera_pos)},
-            {y[0], y[1], y[2], -VEC_DOT(y, camera_pos)},
-            {z[0], z[1], z[2], -VEC_DOT(z, camera_pos)},
-            {0, 0, 0, 1}
-        };
-
         for (int i = 0; i < 2; i++) {
-            update_vertices(meshes[i], view_matrix);
+            update_vertices(meshes[i], camera_pos, camera_target, camera_up);
         }
 
         render_scene(frame_buffer, meshes, 2);
