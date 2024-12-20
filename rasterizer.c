@@ -15,11 +15,8 @@
 #define FAR_PLANE 100.0
 
 #define VEC_DOT(a,b) ((a)[0]*(b)[0]+(a)[1]*(b)[1]+(a)[2]*(b)[2])
-#define VEC_CROSS(a,b,r) { (r)[0]=(a)[1]*(b)[2]-(a)[2]*(b)[1]; \
-                          (r)[1]=(a)[2]*(b)[0]-(a)[0]*(b)[2]; \
-                          (r)[2]=(a)[0]*(b)[1]-(a)[1]*(b)[0]; }
-#define VEC_NORM(v) { double l=sqrt(VEC_DOT(v,v)); \
-                     if(l>0) { (v)[0]/=l; (v)[1]/=l; (v)[2]/=l; } }
+#define VEC_CROSS(a,b,r) { (r)[0]=(a)[1]*(b)[2]-(a)[2]*(b)[1]; (r)[1]=(a)[2]*(b)[0]-(a)[0]*(b)[2]; (r)[2]=(a)[0]*(b)[1]-(a)[1]*(b)[0]; }
+#define VEC_NORM(v) { double l=sqrt(VEC_DOT(v,v)); if(l>0) { (v)[0]/=l; (v)[1]/=l; (v)[2]/=l; } }
 
 typedef struct {
     // Vertex data
