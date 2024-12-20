@@ -230,7 +230,7 @@ int main() {
     };
 
     uint8_t *frame_buffer = calloc(WIDTH * HEIGHT * 3, sizeof(uint8_t));
-    ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 3, -1, 0);
+    ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 4, -1, 0);
 
     double camera_pos[3] = {-2.0, 1.0, -2.0};
     double camera_target[3] = {0.0, 0.0, 0.0};

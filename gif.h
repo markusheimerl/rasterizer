@@ -1,6 +1,7 @@
 #ifndef GIF_H
 #define GIF_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,21 +16,21 @@
 // Default color palette
 static const uint8_t DEFAULT_PALETTE[16 * 3] = {
     0x00, 0x00, 0x00,    // Black
-    0xFF, 0x00, 0x00,    // Red
+    0xFF, 0xFF, 0xFF,    // White
+    0xFF, 0xA5, 0x00,    // Orange
     0x00, 0xFF, 0x00,    // Green
     0x00, 0x00, 0xFF,    // Blue
-    0xFF, 0xFF, 0x00,    // Yellow
-    0xFF, 0x00, 0xFF,    // Magenta
-    0x00, 0xFF, 0xFF,    // Cyan
-    0xFF, 0xFF, 0xFF,    // White
+    0x8B, 0x45, 0x13,    // Saddle Brown
+    0xD2, 0x69, 0x1E,    // Chocolate
+    0xCD, 0x85, 0x3F,    // Peru
+    0xDE, 0xB8, 0x87,    // Burlywood
+    0xD2, 0xB4, 0x8C,    // Tan
+    0xBC, 0x8F, 0x8F,    // Rosy Brown
     0x80, 0x80, 0x80,    // Gray
-    0x80, 0x00, 0x00,    // Dark Red
+    0x40, 0x40, 0x40,    // Dark Gray
+    0xFF, 0x80, 0x00,    // Dark Orange
     0x00, 0x80, 0x00,    // Dark Green
-    0x00, 0x00, 0x80,    // Dark Blue
-    0x80, 0x80, 0x00,    // Dark Yellow
-    0x80, 0x00, 0x80,    // Dark Magenta
-    0x00, 0x80, 0x80,    // Dark Cyan
-    0xC0, 0xC0, 0xC0     // Light Gray
+    0x00, 0x00, 0x80     // Dark Blue
 };
 
 typedef struct {
@@ -226,66 +227,92 @@ static int get_bbox(ge_GIF *gif, uint16_t *w, uint16_t *h, uint16_t *x, uint16_t
     return 0;
 }
 
-static void floyd_steinberg_dithering(uint8_t *input, ge_GIF *gif) {
-    double (*error_buffer)[3] = calloc(gif->w * gif->h, sizeof(*error_buffer));
-    
-    // Initialize error buffer
-    for (int i = 0; i < gif->h * gif->w; i++)
-        for (int c = 0; c < 3; c++)
-            error_buffer[i][c] = input[i * 3 + c];
+static const uint8_t bayer_matrix[4][4] = {
+    { 0,  8,  2, 10},
+    {12,  4, 14,  6},
+    { 3, 11,  1,  9},
+    {15,  7, 13,  5}
+};
 
-    // Apply dithering
+static void ordered_dither_to_palette(uint8_t *input, ge_GIF *gif) {
     for (int y = 0; y < gif->h; y++) {
         for (int x = 0; x < gif->w; x++) {
-            int idx = y * gif->w + x;
-            uint8_t pixel[3];
-            for (int c = 0; c < 3; c++)
-                pixel[c] = (uint8_t)fmax(0, fmin(255, round(error_buffer[idx][c])));
-
-            // Find nearest color
+            int i = (y * gif->w + x) * 3;
+            int r = input[i];
+            int g = input[i + 1];
+            int b = input[i + 2];
+            
+            // First try exact match or very close match
             uint8_t best_color = 0;
-            double min_dist = DBL_MAX;
-            for (int i = 0; i < 8; i++) {
-                double dist = 0;
-                for (int c = 0; c < 3; c++) {
-                    double diff = pixel[c] - gif->palette[i * 3 + c];
-                    dist += diff * diff;
-                }
+            uint32_t min_dist = UINT32_MAX;
+            bool exact_match = false;
+            
+            for (int j = 0; j < (1 << gif->depth); j++) {
+                uint8_t pr = gif->palette[j * 3];
+                uint8_t pg = gif->palette[j * 3 + 1];
+                uint8_t pb = gif->palette[j * 3 + 2];
+                
+                uint32_t dr = (uint32_t)(r - pr);
+                uint32_t dg = (uint32_t)(g - pg);
+                uint32_t db = (uint32_t)(b - pb);
+                
+                uint32_t dist = (dr * dr * 77 + dg * dg * 150 + db * db * 29) >> 8;
+                
                 if (dist < min_dist) {
                     min_dist = dist;
-                    best_color = i;
+                    best_color = j;
+                }
+                
+                // Check if this is an exact or very close match
+                if (dist < 100) {  // Threshold for "close enough"
+                    exact_match = true;
+                    break;
                 }
             }
-
-            gif->frame[idx] = best_color;
-
-            // Distribute error
-            double error[3];
-            for (int c = 0; c < 3; c++)
-                error[c] = error_buffer[idx][c] - gif->palette[best_color * 3 + c];
-
-            const struct { int x, y; float w; } pattern[] = {
-                {1, 0, 7.0/16}, {-1, 1, 3.0/16}, {0, 1, 5.0/16}, {1, 1, 1.0/16}
-            };
-
-            for (int i = 0; i < 4; i++) {
-                int nx = x + pattern[i].x, ny = y + pattern[i].y;
-                if (nx >= 0 && nx < gif->w && ny < gif->h) {
-                    int nidx = ny * gif->w + nx;
-                    for (int c = 0; c < 3; c++)
-                        error_buffer[nidx][c] += error[c] * pattern[i].w;
+            
+            // If no close match found, apply dithering
+            if (!exact_match) {
+                int threshold = bayer_matrix[y & 3][x & 3];
+                
+                r += ((threshold - 8) * 8);
+                g += ((threshold - 8) * 8);
+                b += ((threshold - 8) * 8);
+                
+                // Clamp values
+                r = r < 0 ? 0 : (r > 255 ? 255 : r);
+                g = g < 0 ? 0 : (g > 255 ? 255 : g);
+                b = b < 0 ? 0 : (b > 255 ? 255 : b);
+                
+                // Find best color for dithered values
+                min_dist = UINT32_MAX;
+                
+                for (int j = 0; j < (1 << gif->depth); j++) {
+                    uint8_t pr = gif->palette[j * 3];
+                    uint8_t pg = gif->palette[j * 3 + 1];
+                    uint8_t pb = gif->palette[j * 3 + 2];
+                    
+                    uint32_t dr = (uint32_t)(r - pr);
+                    uint32_t dg = (uint32_t)(g - pg);
+                    uint32_t db = (uint32_t)(b - pb);
+                    
+                    uint32_t dist = (dr * dr * 77 + dg * dg * 150 + db * db * 29) >> 8;
+                    
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        best_color = j;
+                    }
                 }
             }
+            
+            gif->frame[y * gif->w + x] = best_color;
         }
     }
-
-    free(error_buffer);
 }
 
 void ge_add_frame(ge_GIF *gif, uint8_t *input, uint16_t delay) {
     uint16_t w, h, x, y;
 
-    floyd_steinberg_dithering(input, gif);
+    ordered_dither_to_palette(input, gif); 
 
     if (delay || (gif->bgindex >= 0)) {
         safe_write(gif->fd, (uint8_t[]){
