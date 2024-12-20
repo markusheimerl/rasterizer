@@ -1,9 +1,11 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <limits.h>
 #include "gif.h"
 #include "bmp.h"
 #include "obj.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <float.h>
 
 // gcc -O3 rasterizer.c -lm && ./a.out
 

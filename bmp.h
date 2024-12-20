@@ -1,6 +1,9 @@
 #ifndef BMP_H
 #define BMP_H
 
+#include <stdio.h>
+#include <stdlib.h>
+
 unsigned char* load_bmp(const char* filename, int* width, int* height, int* channels) {
     FILE* file = fopen(filename, "rb");
     if (!file) {

@@ -1,17 +1,12 @@
 #ifndef GIF_H
 #define GIF_H
 
-#include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <math.h>
-#include <float.h>
 
 static const uint8_t DEFAULT_PALETTE[16 * 3] = {
     0x00, 0x00, 0x00,    // Black
