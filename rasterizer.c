@@ -113,8 +113,8 @@ void render_frame(uint8_t *image, Object3D **objects, int num_objects) {
                             
                             // Sample and write color
                             double color[3];
-                            sample_texture(u, v, color, obj->texture_data, 
-                                         obj->texture_width, obj->texture_height);
+                            sample_texture(u, v, color, obj->texture.data, 
+                                         obj->texture.width, obj->texture.height);
                             
                             for (int i = 0; i < 3; i++) {
                                 image[idx * 3 + i] = (uint8_t)(color[i] * 255.0);

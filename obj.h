@@ -18,48 +18,44 @@ void parse_obj_file(const char *filename,
 
     char line[256];
     while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "v ", 2) == 0) {
-            double x, y, z;
-            sscanf(line + 2, "%lf %lf %lf", &x, &y, &z);
-            vertices[*num_vertices][0] = x;
-            vertices[*num_vertices][1] = y;
-            vertices[*num_vertices][2] = z;
-            
-            initial_vertices[*num_vertices][0] = x;
-            initial_vertices[*num_vertices][1] = y;
-            initial_vertices[*num_vertices][2] = z;
-            
-            (*num_vertices)++;
-        } else if (strncmp(line, "vt ", 3) == 0) {
-            double u, v;
-            sscanf(line + 3, "%lf %lf", &u, &v);
-            texcoords[*num_texcoords][0] = u;
-            texcoords[*num_texcoords][1] = v;
-            (*num_texcoords)++;
-        } else if (strncmp(line, "f ", 2) == 0) {
-            int vi[3], ti[3];
-            int matches = sscanf(line + 2, "%d/%d %d/%d %d/%d", 
-                               &vi[0], &ti[0], &vi[1], &ti[1], &vi[2], &ti[2]);
-            if (matches != 6) {
-                matches = sscanf(line + 2, "%d/%d/%*d %d/%d/%*d %d/%d/%*d", 
-                               &vi[0], &ti[0], &vi[1], &ti[1], &vi[2], &ti[2]);
-                if (matches != 6) {
-                    matches = sscanf(line + 2, "%d %d %d", &vi[0], &vi[1], &vi[2]);
-                    if (matches != 3) { 
-                        fprintf(stderr, "Failed to parse face: %s", line); 
-                        continue; 
-                    }
-                    else { 
-                        ti[0] = ti[1] = ti[2] = -1; 
-                    }
-                }
+        if (line[0] == 'v') {
+            if (line[1] == ' ') {  // Vertex
+                double x, y, z;
+                sscanf(line + 2, "%lf %lf %lf", &x, &y, &z);
+                vertices[*num_vertices][0] = initial_vertices[*num_vertices][0] = x;
+                vertices[*num_vertices][1] = initial_vertices[*num_vertices][1] = y;
+                vertices[*num_vertices][2] = initial_vertices[*num_vertices][2] = z;
+                (*num_vertices)++;
             }
-            triangles[*num_triangles][0] = vi[0] - 1;
-            triangles[*num_triangles][1] = vi[1] - 1;
-            triangles[*num_triangles][2] = vi[2] - 1;
-            texcoord_indices[*num_triangles][0] = (ti[0] != -1) ? ti[0] - 1 : -1;
-            texcoord_indices[*num_triangles][1] = (ti[1] != -1) ? ti[1] - 1 : -1;
-            texcoord_indices[*num_triangles][2] = (ti[2] != -1) ? ti[2] - 1 : -1;
+            else if (line[1] == 't') {  // Texture coordinate
+                sscanf(line + 3, "%lf %lf", 
+                       &texcoords[*num_texcoords][0], 
+                       &texcoords[*num_texcoords][1]);
+                (*num_texcoords)++;
+            }
+        }
+        else if (line[0] == 'f') {  // Face
+            int vi[3], ti[3] = {-1, -1, -1};
+            char *format;
+            int matches;
+
+            // Try different face formats
+            if (sscanf(line + 2, "%d/%d/%*d %d/%d/%*d %d/%d/%*d", 
+                      &vi[0], &ti[0], &vi[1], &ti[1], &vi[2], &ti[2]) == 6 ||
+                sscanf(line + 2, "%d/%d %d/%d %d/%d", 
+                      &vi[0], &ti[0], &vi[1], &ti[1], &vi[2], &ti[2]) == 6) {
+                // Format with texture coords handled
+            }
+            else if (sscanf(line + 2, "%d %d %d", &vi[0], &vi[1], &vi[2]) != 3) {
+                fprintf(stderr, "Failed to parse face: %s", line);
+                continue;
+            }
+
+            // Store face data
+            for (int i = 0; i < 3; i++) {
+                triangles[*num_triangles][i] = vi[i] - 1;
+                texcoord_indices[*num_triangles][i] = (ti[i] != -1) ? ti[i] - 1 : -1;
+            }
             (*num_triangles)++;
         }
     }
