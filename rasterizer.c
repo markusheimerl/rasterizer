@@ -94,20 +94,22 @@ void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], 
     
     // Create view matrix
     double z[3] = {
-        camera_target[0]-camera_pos[0],
-        camera_target[1]-camera_pos[1],
-        camera_target[2]-camera_pos[2]
+        camera_target[0] - camera_pos[0],
+        camera_target[1] - camera_pos[1],
+        camera_target[2] - camera_pos[2]
     };
-    VEC_NORM(z);
     double x[3], y[3];
+    
+    VEC_NORM(z);
     VEC_CROSS(camera_up, z, x);
     VEC_NORM(x);
     VEC_CROSS(z, x, y);
 
+    // Build view matrix directly
     double view_matrix[4][4] = {
-        {x[0], x[1], x[2], -VEC_DOT(x, camera_pos)},
-        {y[0], y[1], y[2], -VEC_DOT(y, camera_pos)},
-        {z[0], z[1], z[2], -VEC_DOT(z, camera_pos)},
+        {x[0], x[1], x[2], -(x[0]*camera_pos[0] + x[1]*camera_pos[1] + x[2]*camera_pos[2])},
+        {y[0], y[1], y[2], -(y[0]*camera_pos[0] + y[1]*camera_pos[1] + y[2]*camera_pos[2])},
+        {z[0], z[1], z[2], -(z[0]*camera_pos[0] + z[1]*camera_pos[1] + z[2]*camera_pos[2])},
         {0, 0, 0, 1}
     };
 
