@@ -82,72 +82,58 @@ Object3D* create_object(const char* obj_file, const char* texture_file) {
 }
 
 void update_vertices(Object3D* obj, double view_matrix[4][4]) {
-    // Create projection matrix
-    double projection[4][4] = {0};
-    double f = 1.0 / tan(FOV_Y * M_PI / 360.0);
-    projection[0][0] = f / ASPECT_RATIO;
-    projection[1][1] = f;
-    projection[2][2] = (FAR_PLANE + NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE);
-    projection[2][3] = (2 * FAR_PLANE * NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE);
-    projection[3][2] = -1;
+    // Create perspective projection matrix
+    double f = (1.0 / tan(FOV_Y * M_PI / 360.0));
+    double proj_matrix[4][4] = {
+        {f/ASPECT_RATIO, 0, 0, 0},
+        {0, f, 0, 0},
+        {0, 0, (FAR_PLANE+NEAR_PLANE)/(NEAR_PLANE-FAR_PLANE), (2*FAR_PLANE*NEAR_PLANE)/(NEAR_PLANE-FAR_PLANE)},
+        {0, 0, -1, 0}
+    };
 
-    // Create viewport matrix
-    double viewport[4][4] = {0};
-    viewport[0][0] = WIDTH / 2.0;
-    viewport[1][1] = HEIGHT / 2.0;
-    viewport[0][3] = WIDTH / 2.0;
-    viewport[1][3] = HEIGHT / 2.0;
-    viewport[2][2] = viewport[3][3] = 1.0;
-
-    // Combine transformations
-    double combined[4][4] = {0};
-    double temp[4][4] = {0};
-
-    // Model * View
-    for(int i = 0; i < 4; i++) {
-        for(int j = 0; j < 4; j++) {
-            for(int k = 0; k < 4; k++) {
-                temp[i][j] += view_matrix[i][k] * obj->model_matrix[k][j];
-            }
-        }
-    }
-
-    // (Model * View) * Projection
-    for(int i = 0; i < 4; i++) {
-        for(int j = 0; j < 4; j++) {
-            for(int k = 0; k < 4; k++) {
-                combined[i][j] += projection[i][k] * temp[k][j];
-            }
-        }
-    }
-
-    // ((Model * View) * Projection) * Viewport
-    memset(temp, 0, sizeof(temp));
-    for(int i = 0; i < 4; i++) {
-        for(int j = 0; j < 4; j++) {
-            for(int k = 0; k < 4; k++) {
-                temp[i][j] += viewport[i][k] * combined[k][j];
-            }
-        }
-    }
-
-    // Transform vertices
+    // Transform each vertex
     for (int i = 0; i < obj->num_vertices; i++) {
-        double result[4] = {0};
-        for (int j = 0; j < 4; j++) {
-            for (int k = 0; k < 3; k++) {
-                result[j] += temp[j][k] * obj->initial_vertices[i][k];
+        // Start with initial vertex position
+        double vertex[4] = {
+            obj->initial_vertices[i][0],
+            obj->initial_vertices[i][1],
+            obj->initial_vertices[i][2],
+            1.0
+        };
+        
+        // Apply model transformation
+        double model_vertex[4] = {0};
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 4; col++) {
+                model_vertex[row] += obj->model_matrix[row][col] * vertex[col];
             }
-            result[j] += temp[j][3];
         }
-
-        if (fabs(result[3]) > 1e-6) {
-            double inv_w = 1.0 / result[3];
-            for (int j = 0; j < 3; j++) {
-                obj->transformed_vertices[i][j] = result[j] * inv_w;
+        
+        // Apply view transformation
+        double view_vertex[4] = {0};
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 4; col++) {
+                view_vertex[row] += view_matrix[row][col] * model_vertex[col];
             }
+        }
+        
+        // Apply perspective projection
+        double proj_vertex[4] = {0};
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 4; col++) {
+                proj_vertex[row] += proj_matrix[row][col] * view_vertex[col];
+            }
+        }
+        
+        // Perform perspective divide and viewport transformation
+        if (proj_vertex[3] != 0) {
+            obj->transformed_vertices[i][0] = ((proj_vertex[0] / proj_vertex[3] + 1.0) * 0.5) * WIDTH;
+            obj->transformed_vertices[i][1] = ((proj_vertex[1] / proj_vertex[3] + 1.0) * 0.5) * HEIGHT;
+            obj->transformed_vertices[i][2] = proj_vertex[2] / proj_vertex[3];
         } else {
-            memset(obj->transformed_vertices[i], 0, 3 * sizeof(double));
+            obj->transformed_vertices[i][0] = 0;
+            obj->transformed_vertices[i][1] = 0;
+            obj->transformed_vertices[i][2] = 0;
         }
     }
 }
