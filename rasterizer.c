@@ -70,7 +70,7 @@ Object3D* create_object(const char* obj_file, const char* texture_file) {
     obj->triangles = malloc(MAX_TRIANGLES * sizeof(*obj->triangles) * 2);
     obj->texcoord_indices = obj->triangles + MAX_TRIANGLES;
 
-    parse_obj_file(obj_file, obj->vertices, obj->initial_vertices, obj->texcoords,
+    load_obj(obj_file, obj->vertices, obj->initial_vertices, obj->texcoords,
                    obj->triangles, obj->texcoord_indices, &obj->num_vertices,
                    &obj->num_texcoords, &obj->num_triangles);
 

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void parse_obj_file(const char *filename, 
+void load_obj(const char *filename, 
                    double (*vertices)[3], 
                    double (*initial_vertices)[3],
                    double (*texcoords)[2],
