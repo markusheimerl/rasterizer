@@ -248,8 +248,13 @@ void rasterize(uint8_t *image, Mesh **meshes, int num_meshes) {
                         if (z < z_buffer[pixel_idx]) {
                             z_buffer[pixel_idx] = z;
 
-                            double u = w0 * u0 + w1 * u1 + w2 * u2;
-                            double v = w0 * v0 + w1 * v1 + w2 * v2;
+                            double w0_perspective = w0 / z0;
+                            double w1_perspective = w1 / z1;
+                            double w2_perspective = w2 / z2;
+                            double w_sum = w0_perspective + w1_perspective + w2_perspective;
+
+                            double u = (w0_perspective * u0 + w1_perspective * u1 + w2_perspective * u2) / w_sum;
+                            double v = (w0_perspective * v0 + w1_perspective * v1 + w2_perspective * v2) / w_sum;
 
                             int tx = (int)(u * (mesh->texture_dims[0] - 1));
                             int ty = (int)(v * (mesh->texture_dims[1] - 1));
