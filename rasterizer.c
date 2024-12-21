@@ -171,9 +171,9 @@ void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], 
             projected[2] /= projected[3];
         }
         
-        // Viewport transform
-        mesh->vertices[i * 3] = (projected[0] + 1.0) * WIDTH * 0.5;
-        mesh->vertices[i * 3 + 1] = (projected[1] + 1.0) * HEIGHT * 0.5;
+        // Store NDC coordinates
+        mesh->vertices[i * 3] = projected[0];
+        mesh->vertices[i * 3 + 1] = projected[1];
         mesh->vertices[i * 3 + 2] = projected[2];
     }
 }
@@ -201,17 +201,17 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
             int t1_idx = mesh->texcoord_indices[t * 3 + 1];
             int t2_idx = mesh->texcoord_indices[t * 3 + 2];
 
-            // Get vertex positions
-            double x0 = mesh->vertices[v0_idx * 3];
-            double y0 = mesh->vertices[v0_idx * 3 + 1];
+            // Get vertex positions and apply viewport transform
+            double x0 = (mesh->vertices[v0_idx * 3] + 1.0) * WIDTH * 0.5;
+            double y0 = (mesh->vertices[v0_idx * 3 + 1] + 1.0) * HEIGHT * 0.5;
             double z0 = mesh->vertices[v0_idx * 3 + 2];
             
-            double x1 = mesh->vertices[v1_idx * 3];
-            double y1 = mesh->vertices[v1_idx * 3 + 1];
+            double x1 = (mesh->vertices[v1_idx * 3] + 1.0) * WIDTH * 0.5;
+            double y1 = (mesh->vertices[v1_idx * 3 + 1] + 1.0) * HEIGHT * 0.5;
             double z1 = mesh->vertices[v1_idx * 3 + 2];
             
-            double x2 = mesh->vertices[v2_idx * 3];
-            double y2 = mesh->vertices[v2_idx * 3 + 1];
+            double x2 = (mesh->vertices[v2_idx * 3] + 1.0) * WIDTH * 0.5;
+            double y2 = (mesh->vertices[v2_idx * 3 + 1] + 1.0) * HEIGHT * 0.5;
             double z2 = mesh->vertices[v2_idx * 3 + 2];
 
             // Get texture coordinates
@@ -234,7 +234,6 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
             double area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
             if (fabs(area) < 1e-8) continue;  // Skip degenerate triangles
 
-            // Rasterize triangle
             for (int y = min_y; y <= max_y; y++) {
                 for (int x = min_x; x <= max_x; x++) {
                     // Barycentric coordinates
@@ -242,32 +241,25 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
                     double w1 = ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y)) / area;
                     double w2 = 1.0 - w0 - w1;
 
-                    // Check if point is inside triangle
                     if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-                        // Interpolate z
                         double z = w0 * z0 + w1 * z1 + w2 * z2;
-                        
-                        // Z-buffer test
                         int pixel_idx = y * WIDTH + x;
+                        
                         if (z < z_buffer[pixel_idx]) {
                             z_buffer[pixel_idx] = z;
 
-                            // Interpolate texture coordinates
                             double u = w0 * u0 + w1 * u1 + w2 * u2;
                             double v = w0 * v0 + w1 * v1 + w2 * v2;
 
-                            // Sample texture
                             int tx = (int)(u * (mesh->texture_dims[0] - 1));
                             int ty = (int)(v * (mesh->texture_dims[1] - 1));
                             
-                            // Clamp texture coordinates
                             tx = fmax(0, fmin(tx, mesh->texture_dims[0] - 1));
                             ty = fmax(0, fmin(ty, mesh->texture_dims[1] - 1));
 
                             int texel_idx = (ty * mesh->texture_dims[0] + tx) * 3;
                             int pixel_offset = (y * WIDTH + x) * 3;
 
-                            // Write pixel color
                             image[pixel_offset] = mesh->texture_data[texel_idx];
                             image[pixel_offset + 1] = mesh->texture_data[texel_idx + 1];
                             image[pixel_offset + 2] = mesh->texture_data[texel_idx + 2];
