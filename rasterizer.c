@@ -31,19 +31,27 @@ typedef struct {
 } Mesh;
 
 void transform_mesh(Mesh* mesh, double translate[3], double scale, double rotate_y) {
-    double c = cos(rotate_y), s = sin(rotate_y);
+    // Create rotation matrix around Y axis
+    double cos_y = cos(rotate_y);
+    double sin_y = sin(rotate_y);
+    
+    // Build transformation matrix
     memset(mesh->transform, 0, 16 * sizeof(double));
-
-    mesh->transform[0][0] = c * scale;
-    mesh->transform[0][2] = s * scale;
+    
+    // Scale
+    mesh->transform[0][0] = scale * cos_y;
+    mesh->transform[0][2] = scale * sin_y;
     mesh->transform[1][1] = scale;
-    mesh->transform[2][0] = -s * scale;
-    mesh->transform[2][2] = c * scale;
-    mesh->transform[3][3] = 1.0;
-
+    mesh->transform[2][0] = -scale * sin_y;
+    mesh->transform[2][2] = scale * cos_y;
+    
+    // Translation
     mesh->transform[0][3] = translate[0];
     mesh->transform[1][3] = translate[1];
     mesh->transform[2][3] = translate[2];
+    
+    // Homogeneous coordinate
+    mesh->transform[3][3] = 1.0;
 }
 
 Mesh* create_mesh(const char* obj_file, const char* texture_file) {
