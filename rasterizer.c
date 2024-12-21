@@ -12,8 +12,8 @@
 #define FRAMES 60
 #define ASPECT_RATIO ((double)WIDTH / (double)HEIGHT)
 #define FOV_Y 60.0
-#define NEAR_PLANE 3.0
-#define FAR_PLANE 100.0
+#define NEAR_PLANE 10.0
+#define FAR_PLANE 1000.0
 
 #define VEC_DOT(a,b) ((a)[0]*(b)[0]+(a)[1]*(b)[1]+(a)[2]*(b)[2])
 #define VEC_CROSS(a,b,r) { (r)[0]=(a)[1]*(b)[2]-(a)[2]*(b)[1]; (r)[1]=(a)[2]*(b)[0]-(a)[0]*(b)[2]; (r)[2]=(a)[0]*(b)[1]-(a)[1]*(b)[0]; }
@@ -244,12 +244,16 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
                         if (z > depth_buffer[pixel_idx]) {
                             depth_buffer[pixel_idx] = z;
 
-                            double u = (lambda0 * vertex_uv[0][0] * vertex_pos[0][3] +
-                                      lambda1 * vertex_uv[1][0] * vertex_pos[1][3] +
-                                      lambda2 * vertex_uv[2][0] * vertex_pos[2][3]) * z;
-                            double v = (lambda0 * vertex_uv[0][1] * vertex_pos[0][3] +
-                                      lambda1 * vertex_uv[1][1] * vertex_pos[1][3] +
-                                      lambda2 * vertex_uv[2][1] * vertex_pos[2][3]) * z;
+                            // Perspective-correct texture interpolation
+                            double w = 1.0 / (lambda0 * vertex_pos[0][3] + 
+                                            lambda1 * vertex_pos[1][3] + 
+                                            lambda2 * vertex_pos[2][3]);
+                            double u = w * (lambda0 * vertex_uv[0][0] / vertex_pos[0][2] +
+                                          lambda1 * vertex_uv[1][0] / vertex_pos[1][2] +
+                                          lambda2 * vertex_uv[2][0] / vertex_pos[2][2]);
+                            double v = w * (lambda0 * vertex_uv[0][1] / vertex_pos[0][2] +
+                                          lambda1 * vertex_uv[1][1] / vertex_pos[1][2] +
+                                          lambda2 * vertex_uv[2][1] / vertex_pos[2][2]);
 
                             u = u - floor(u);
                             v = 1.0 - (v - floor(v));
