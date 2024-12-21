@@ -5,14 +5,13 @@
 #include "gif.h"
 #include "bmp.h"
 #include "obj.h"
-#include <stdbool.h>
 
 #define WIDTH 640
 #define HEIGHT 480
 #define FRAMES 60
 #define ASPECT_RATIO ((double)WIDTH / (double)HEIGHT)
 #define FOV_Y 60.0
-#define NEAR_PLANE 3.0
+#define NEAR_PLANE 0.1
 #define FAR_PLANE 100.0
 
 #define VEC_DOT(a,b) ((a)[0]*(b)[0]+(a)[1]*(b)[1]+(a)[2]*(b)[2])
@@ -193,15 +192,8 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
             double vertex_pos[3][4];  // x, y, z, w(1/z)
             double vertex_uv[3][2];   // u, v
             
-            // Check if any vertex is behind near plane
-            bool skip_triangle = false;
             for (int v = 0; v < 3; v++) {
                 const int vertex_idx = triangles[tri_idx][v];
-                if (vertices[vertex_idx][2] < -NEAR_PLANE) {  // Check against near plane
-                    skip_triangle = true;
-                    printf("Triangle %d is behind near plane\n", tri_idx);
-                    break;
-                }
                 vertex_pos[v][0] = vertices[vertex_idx][0];
                 vertex_pos[v][1] = vertices[vertex_idx][1];
                 vertex_pos[v][2] = vertices[vertex_idx][2];
@@ -211,8 +203,6 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
                 vertex_uv[v][0] = texcoords[uv_idx][0];
                 vertex_uv[v][1] = texcoords[uv_idx][1];
             }
-
-            if (skip_triangle) continue;
 
             int min_x = fmax(0, floor(fmin(fmin(vertex_pos[0][0], vertex_pos[1][0]), vertex_pos[2][0])));
             int min_y = fmax(0, floor(fmin(fmin(vertex_pos[0][1], vertex_pos[1][1]), vertex_pos[2][1])));
