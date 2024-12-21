@@ -196,6 +196,13 @@ void rasterize(uint8_t *image, Mesh **meshes, int num_meshes) {
             int v1_idx = mesh->triangles[t * 3 + 1];
             int v2_idx = mesh->triangles[t * 3 + 2];
 
+            // Check if any vertex is behind the near plane
+            if (mesh->vertices[v0_idx * 3 + 2] > 1.0 ||
+                mesh->vertices[v1_idx * 3 + 2] > 1.0 ||
+                mesh->vertices[v2_idx * 3 + 2] > 1.0) {
+                continue;  // Skip triangle if any vertex is behind near plane
+            }
+
             // Get texture coordinate indices
             int t0_idx = mesh->texcoord_indices[t * 3];
             int t1_idx = mesh->texcoord_indices[t * 3 + 1];
@@ -213,6 +220,11 @@ void rasterize(uint8_t *image, Mesh **meshes, int num_meshes) {
             double x2 = (mesh->vertices[v2_idx * 3] + 1.0) * WIDTH * 0.5;
             double y2 = (mesh->vertices[v2_idx * 3 + 1] + 1.0) * HEIGHT * 0.5;
             double z2 = mesh->vertices[v2_idx * 3 + 2];
+
+            // Skip triangles that are too close to the camera
+            if (z0 < -0.1 || z1 < -0.1 || z2 < -0.1) {
+                continue;
+            }
 
             // Get texture coordinates
             double u0 = mesh->texcoords[t0_idx * 2];
