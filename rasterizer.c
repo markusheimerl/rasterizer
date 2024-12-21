@@ -286,6 +286,7 @@ int main() {
     };
 
     uint8_t *frame_buffer = calloc(WIDTH * HEIGHT * 3, sizeof(uint8_t));
+    uint8_t *flipped_buffer = calloc(WIDTH * HEIGHT * 3, sizeof(uint8_t));
     ge_GIF *gif = ge_new_gif("output_rasterizer.gif", WIDTH, HEIGHT, 4, -1, 0);
 
     double camera_pos[3] = {-2.0, 1.0, -2.0};
@@ -306,17 +307,29 @@ int main() {
 
         render_scene(frame_buffer, meshes, 2);
 
+        // Flip the image vertically
+        for (int y = 0; y < HEIGHT; y++) {
+            for (int x = 0; x < WIDTH; x++) {
+                int src_idx = (y * WIDTH + x) * 3;
+                int dst_idx = ((HEIGHT - 1 - y) * WIDTH + x) * 3;
+                flipped_buffer[dst_idx] = frame_buffer[src_idx];
+                flipped_buffer[dst_idx + 1] = frame_buffer[src_idx + 1];
+                flipped_buffer[dst_idx + 2] = frame_buffer[src_idx + 2];
+            }
+        }
+
         camera_pos[0] += 0.05;
         camera_pos[2] += 0.05;
         camera_target[0] += 0.05;
         camera_target[2] += 0.05;
 
-        ge_add_frame(gif, frame_buffer, 6);
+        ge_add_frame(gif, flipped_buffer, 6);
         printf("Rendered frame %d/%d\n", frame + 1, FRAMES);
     }
 
     ge_close_gif(gif);
     free(frame_buffer);
+    free(flipped_buffer);
     
     for (int i = 0; i < 2; i++) {
         if (meshes[i]) {
