@@ -1,6 +1,6 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -O3 -march=native -ffast-math -funroll-loops -flto
+CFLAGS = -O3 -march=native -ffast-math -funroll-loops
 LDFLAGS = -lm -flto
 
 # Target and source
