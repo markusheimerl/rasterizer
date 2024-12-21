@@ -89,178 +89,178 @@ Mesh* create_mesh(const char* obj_file, const char* texture_file) {
 }
 
 void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], double camera_up[3]) {
-    // Allocate temporary storage for transformed vertices
-    double* transformed_vertices = malloc(mesh->counts[0] * 3 * sizeof(double));
-    
-    // Create view matrix
-    double z[3] = {
+    // Calculate view matrix
+    double forward[3] = {
         camera_target[0] - camera_pos[0],
         camera_target[1] - camera_pos[1],
         camera_target[2] - camera_pos[2]
     };
-    double x[3], y[3];
+    VEC_NORM(forward);
     
-    VEC_NORM(z);
-    VEC_CROSS(camera_up, z, x);
-    VEC_NORM(x);
-    VEC_CROSS(z, x, y);
-
-    // Build view matrix directly
+    double right[3];
+    VEC_CROSS(forward, camera_up, right);
+    VEC_NORM(right);
+    
+    double up[3];
+    VEC_CROSS(right, forward, up);
+    
     double view_matrix[4][4] = {
-        {x[0], x[1], x[2], -(x[0]*camera_pos[0] + x[1]*camera_pos[1] + x[2]*camera_pos[2])},
-        {y[0], y[1], y[2], -(y[0]*camera_pos[0] + y[1]*camera_pos[1] + y[2]*camera_pos[2])},
-        {z[0], z[1], z[2], -(z[0]*camera_pos[0] + z[1]*camera_pos[1] + z[2]*camera_pos[2])},
+        {right[0], right[1], right[2], -VEC_DOT(right, camera_pos)},
+        {up[0], up[1], up[2], -VEC_DOT(up, camera_pos)},
+        {-forward[0], -forward[1], -forward[2], VEC_DOT(forward, camera_pos)},
         {0, 0, 0, 1}
     };
 
-    // Create projection matrix
-    const double fov_rad = FOV_Y * M_PI / 360.0;
-    const double f = 1.0 / tan(fov_rad);
-    const double near_far_factor = (FAR_PLANE + NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE);
-    const double near_far_term = (2 * FAR_PLANE * NEAR_PLANE) / (NEAR_PLANE - FAR_PLANE);
+    // Calculate projection matrix
+    double f = 1.0 / tan(FOV_Y * M_PI / 360.0);
+    double aspect = ASPECT_RATIO;
+    double near = NEAR_PLANE;
+    double far = FAR_PLANE;
     
     double proj_matrix[4][4] = {
-        {f/ASPECT_RATIO, 0, 0, 0},
+        {f/aspect, 0, 0, 0},
         {0, f, 0, 0},
-        {0, 0, near_far_factor, near_far_term},
+        {0, 0, (far+near)/(near-far), (2*far*near)/(near-far)},
         {0, 0, -1, 0}
     };
 
-    double (*initial_vertices)[3] = (double(*)[3])mesh->initial_vertices;
-    double (*transformed)[3] = (double(*)[3])transformed_vertices;
-
+    // Transform all vertices
     for (int i = 0; i < mesh->counts[0]; i++) {
         double vertex[4] = {
-            initial_vertices[i][0],
-            initial_vertices[i][1],
-            initial_vertices[i][2],
+            mesh->initial_vertices[i*3],
+            mesh->initial_vertices[i*3+1],
+            mesh->initial_vertices[i*3+2],
             1.0
         };
         
-        double world_vertex[4] = {0};
+        // Apply model transform
+        double model_transformed[4] = {0};
         for (int row = 0; row < 4; row++) {
             for (int col = 0; col < 4; col++) {
-                world_vertex[row] += mesh->transform[row][col] * vertex[col];
+                model_transformed[row] += mesh->transform[row][col] * vertex[col];
             }
         }
         
-        double view_vertex[4] = {0};
+        // Apply view transform
+        double view_transformed[4] = {0};
         for (int row = 0; row < 4; row++) {
             for (int col = 0; col < 4; col++) {
-                view_vertex[row] += view_matrix[row][col] * world_vertex[col];
+                view_transformed[row] += view_matrix[row][col] * model_transformed[col];
             }
         }
         
-        double clip_vertex[4] = {0};
+        // Apply projection transform
+        double proj_transformed[4] = {0};
         for (int row = 0; row < 4; row++) {
             for (int col = 0; col < 4; col++) {
-                clip_vertex[row] += proj_matrix[row][col] * view_vertex[col];
+                proj_transformed[row] += proj_matrix[row][col] * view_transformed[col];
             }
         }
         
-        if (clip_vertex[3] != 0) {
-            const double inv_w = 1.0 / clip_vertex[3];
-            transformed[i][0] = ((clip_vertex[0] * inv_w + 1.0) * 0.5) * WIDTH;
-            transformed[i][1] = ((clip_vertex[1] * inv_w + 1.0) * 0.5) * HEIGHT;
-            transformed[i][2] = clip_vertex[2] * inv_w;
-        } else {
-            transformed[i][0] = 0;
-            transformed[i][1] = 0;
-            transformed[i][2] = 0;
+        // Perspective divide
+        if (proj_transformed[3] != 0) {
+            proj_transformed[0] /= proj_transformed[3];
+            proj_transformed[1] /= proj_transformed[3];
+            proj_transformed[2] /= proj_transformed[3];
         }
+        
+        // Convert to screen space
+        mesh->vertices[i*3] = (proj_transformed[0] + 1.0) * WIDTH * 0.5;
+        mesh->vertices[i*3+1] = (proj_transformed[1] + 1.0) * HEIGHT * 0.5;
+        mesh->vertices[i*3+2] = proj_transformed[2];
     }
-    
-    // Copy transformed vertices back to mesh->vertices
-    memcpy(mesh->vertices, transformed_vertices, mesh->counts[0] * 3 * sizeof(double));
-    free(transformed_vertices);
 }
 
 void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
-    double *depth_buffer = calloc(WIDTH * HEIGHT, sizeof(double));
+    // Create and initialize depth buffer
+    double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        depth_buffer[i] = -DBL_MAX;
+        depth_buffer[i] = DBL_MAX;
     }
 
-    for (int mesh_idx = 0; mesh_idx < num_meshes; mesh_idx++) {
-        Mesh *mesh = meshes[mesh_idx];
+    // For each mesh in the scene
+    for (int m = 0; m < num_meshes; m++) {
+        Mesh *mesh = meshes[m];
         double (*vertices)[3] = (double(*)[3])mesh->vertices;
         double (*texcoords)[2] = (double(*)[2])mesh->texcoords;
         int (*triangles)[3] = (int(*)[3])mesh->triangles;
-        int (*texcoord_indices)[3] = (int(*)[3])mesh->texcoord_indices;
+        int (*tex_indices)[3] = (int(*)[3])mesh->texcoord_indices;
 
-        for (int tri_idx = 0; tri_idx < mesh->counts[2]; tri_idx++) {
-            double vertex_pos[3][4];  // x, y, z, w(1/z)
-            double vertex_uv[3][2];   // u, v
-            
-            for (int v = 0; v < 3; v++) {
-                const int vertex_idx = triangles[tri_idx][v];
-                vertex_pos[v][0] = vertices[vertex_idx][0];
-                vertex_pos[v][1] = vertices[vertex_idx][1];
-                vertex_pos[v][2] = vertices[vertex_idx][2];
-                vertex_pos[v][3] = 1.0 / vertex_pos[v][2];
-                
-                const int uv_idx = texcoord_indices[tri_idx][v];
-                vertex_uv[v][0] = texcoords[uv_idx][0];
-                vertex_uv[v][1] = texcoords[uv_idx][1];
-            }
+        // For each triangle in the mesh
+        for (int t = 0; t < mesh->counts[2]; t++) {
+            // Get triangle vertices
+            double x1 = vertices[triangles[t][0]][0];
+            double y1 = vertices[triangles[t][0]][1];
+            double z1 = vertices[triangles[t][0]][2];
+            double x2 = vertices[triangles[t][1]][0];
+            double y2 = vertices[triangles[t][1]][1];
+            double z2 = vertices[triangles[t][1]][2];
+            double x3 = vertices[triangles[t][2]][0];
+            double y3 = vertices[triangles[t][2]][1];
+            double z3 = vertices[triangles[t][2]][2];
 
-            int min_x = fmax(0, floor(fmin(fmin(vertex_pos[0][0], vertex_pos[1][0]), vertex_pos[2][0])));
-            int min_y = fmax(0, floor(fmin(fmin(vertex_pos[0][1], vertex_pos[1][1]), vertex_pos[2][1])));
-            int max_x = fmin(WIDTH - 1, ceil(fmax(fmax(vertex_pos[0][0], vertex_pos[1][0]), vertex_pos[2][0])));
-            int max_y = fmin(HEIGHT - 1, ceil(fmax(fmax(vertex_pos[0][1], vertex_pos[1][1]), vertex_pos[2][1])));
+            // Basic backface culling
+            double ax = x2 - x1, ay = y2 - y1;
+            double bx = x3 - x1, by = y3 - y1;
+            if (ax * by - ay * bx <= 0) continue;
 
-            double bary_denom = ((vertex_pos[1][1] - vertex_pos[2][1]) * (vertex_pos[0][0] - vertex_pos[2][0]) +
-                                (vertex_pos[2][0] - vertex_pos[1][0]) * (vertex_pos[0][1] - vertex_pos[2][1]));
-            
-            if (fabs(bary_denom) < 1e-6) continue;
+            // Get texture coordinates
+            double u1 = texcoords[tex_indices[t][0]][0];
+            double v1 = texcoords[tex_indices[t][0]][1];
+            double u2 = texcoords[tex_indices[t][1]][0];
+            double v2 = texcoords[tex_indices[t][1]][1];
+            double u3 = texcoords[tex_indices[t][2]][0];
+            double v3 = texcoords[tex_indices[t][2]][1];
 
-            for (int y = min_y; y <= max_y; y++) {
-                for (int x = min_x; x <= max_x; x++) {
-                    double lambda0 = ((vertex_pos[1][1] - vertex_pos[2][1]) * (x - vertex_pos[2][0]) +
-                                    (vertex_pos[2][0] - vertex_pos[1][0]) * (y - vertex_pos[2][1])) / bary_denom;
-                    double lambda1 = ((vertex_pos[2][1] - vertex_pos[0][1]) * (x - vertex_pos[2][0]) +
-                                    (vertex_pos[0][0] - vertex_pos[2][0]) * (y - vertex_pos[2][1])) / bary_denom;
-                    double lambda2 = 1.0 - lambda0 - lambda1;
+            // Calculate bounding box
+            int minX = (int)fmax(0, fmin(fmin(x1, x2), x3));
+            int maxX = (int)fmin(WIDTH - 1, fmax(fmax(x1, x2), x3));
+            int minY = (int)fmax(0, fmin(fmin(y1, y2), y3));
+            int maxY = (int)fmin(HEIGHT - 1, fmax(fmax(y1, y2), y3));
 
-                    if (lambda0 >= 0 && lambda0 <= 1 && 
-                        lambda1 >= 0 && lambda1 <= 1 && 
-                        lambda2 >= 0 && lambda2 <= 1) {
-                        
-                        int pixel_idx = y * WIDTH + x;
-                        double z = lambda0 * vertex_pos[0][2] + 
-                                 lambda1 * vertex_pos[1][2] + 
-                                 lambda2 * vertex_pos[2][2];
+            // Rasterize triangle
+            for (int y = minY; y <= maxY; y++) {
+                for (int x = minX; x <= maxX; x++) {
+                    // Calculate barycentric coordinates
+                    double w1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) /
+                               ((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3));
+                    double w2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) /
+                               ((y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3));
+                    double w3 = 1.0 - w1 - w2;
 
-                        if (z > depth_buffer[pixel_idx]) {
-                            depth_buffer[pixel_idx] = z;
+                    if (w1 >= 0 && w2 >= 0 && w3 >= 0) {
+                        // Interpolate Z
+                        double z = w1 * z1 + w2 * z2 + w3 * z3;
 
-                            double u = (lambda0 * vertex_uv[0][0] * vertex_pos[0][3] +
-                                      lambda1 * vertex_uv[1][0] * vertex_pos[1][3] +
-                                      lambda2 * vertex_uv[2][0] * vertex_pos[2][3]) * z;
-                            double v = (lambda0 * vertex_uv[0][1] * vertex_pos[0][3] +
-                                      lambda1 * vertex_uv[1][1] * vertex_pos[1][3] +
-                                      lambda2 * vertex_uv[2][1] * vertex_pos[2][3]) * z;
+                        // Depth test
+                        int pixel_index = y * WIDTH + x;
+                        if (z < depth_buffer[pixel_index]) {
+                            depth_buffer[pixel_index] = z;
 
-                            u = u - floor(u);
-                            v = 1.0 - (v - floor(v));
+                            // Interpolate texture coordinates
+                            double u = w1 * u1 + w2 * u2 + w3 * u3;
+                            double v = w1 * v1 + w2 * v2 + w3 * v3;
 
-                            int tx = (int)(u * mesh->texture_dims[0]);
-                            int ty = (int)(v * mesh->texture_dims[1]);
-                            
-                            tx = fmin(fmax(tx, 0), mesh->texture_dims[0] - 1);
-                            ty = fmin(fmax(ty, 0), mesh->texture_dims[1] - 1);
+                            // Sample texture
+                            int tx = (int)(u * (mesh->texture_dims[0] - 1));
+                            int ty = (int)(v * (mesh->texture_dims[1] - 1));
+                            tx = (tx + mesh->texture_dims[0]) % mesh->texture_dims[0];
+                            ty = (ty + mesh->texture_dims[1]) % mesh->texture_dims[1];
 
-                            int tex_idx = (ty * mesh->texture_dims[0] + tx) * 3;
-                            image[pixel_idx * 3 + 0] = mesh->texture_data[tex_idx + 0];
-                            image[pixel_idx * 3 + 1] = mesh->texture_data[tex_idx + 1];
-                            image[pixel_idx * 3 + 2] = mesh->texture_data[tex_idx + 2];
+                            int texel_index = (ty * mesh->texture_dims[0] + tx) * 3;
+                            int image_index = (y * WIDTH + x) * 3;
+
+                            // Write pixel color
+                            image[image_index] = mesh->texture_data[texel_index];
+                            image[image_index + 1] = mesh->texture_data[texel_index + 1];
+                            image[image_index + 2] = mesh->texture_data[texel_index + 2];
                         }
                     }
                 }
             }
         }
     }
-    
+
     free(depth_buffer);
 }
 
