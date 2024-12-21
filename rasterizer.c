@@ -8,7 +8,7 @@
 
 #define WIDTH 640
 #define HEIGHT 480
-#define FRAMES 60
+#define FRAMES 120
 #define ASPECT_RATIO ((double)WIDTH / (double)HEIGHT)
 #define FOV_Y 60.0
 #define NEAR_PLANE 0.1
@@ -329,10 +329,10 @@ int main() {
             }
         }
 
-        camera_pos[0] += 0.05;
-        camera_pos[2] += 0.05;
-        camera_target[0] += 0.05;
-        camera_target[2] += 0.05;
+        camera_pos[0] += 0.025;
+        camera_pos[2] += 0.025;
+        camera_target[0] += 0.025;
+        camera_target[2] += 0.025;
 
         ge_add_frame(gif, flipped_buffer, 6);
         printf("Rendered frame %d/%d\n", frame + 1, FRAMES);
