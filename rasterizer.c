@@ -179,10 +179,10 @@ void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], 
 }
 
 void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
-    // Create and initialize depth buffer
-    double *depth_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
+    // Create and initialize z-buffer
+    double *z_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        depth_buffer[i] = 1.0;
+        z_buffer[i] = DBL_MAX;
     }
 
     // For each mesh
@@ -191,76 +191,70 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
         
         // For each triangle
         for (int t = 0; t < mesh->counts[2]; t++) {
-            int *tri = &mesh->triangles[t * 3];
-            int *tex_tri = &mesh->texcoord_indices[t * 3];
+            // Get vertex indices
+            int v0_idx = mesh->triangles[t * 3];
+            int v1_idx = mesh->triangles[t * 3 + 1];
+            int v2_idx = mesh->triangles[t * 3 + 2];
+
+            // Get texture coordinate indices
+            int t0_idx = mesh->texcoord_indices[t * 3];
+            int t1_idx = mesh->texcoord_indices[t * 3 + 1];
+            int t2_idx = mesh->texcoord_indices[t * 3 + 2];
+
+            // Get vertex positions
+            double x0 = mesh->vertices[v0_idx * 3];
+            double y0 = mesh->vertices[v0_idx * 3 + 1];
+            double z0 = mesh->vertices[v0_idx * 3 + 2];
             
-            // Get triangle vertices
-            double x1 = mesh->vertices[tri[0] * 3];
-            double y1 = mesh->vertices[tri[0] * 3 + 1];
-            double z1 = mesh->vertices[tri[0] * 3 + 2];
+            double x1 = mesh->vertices[v1_idx * 3];
+            double y1 = mesh->vertices[v1_idx * 3 + 1];
+            double z1 = mesh->vertices[v1_idx * 3 + 2];
             
-            double x2 = mesh->vertices[tri[1] * 3];
-            double y2 = mesh->vertices[tri[1] * 3 + 1];
-            double z2 = mesh->vertices[tri[1] * 3 + 2];
+            double x2 = mesh->vertices[v2_idx * 3];
+            double y2 = mesh->vertices[v2_idx * 3 + 1];
+            double z2 = mesh->vertices[v2_idx * 3 + 2];
+
+            // Get texture coordinates
+            double u0 = mesh->texcoords[t0_idx * 2];
+            double v0 = mesh->texcoords[t0_idx * 2 + 1];
             
-            double x3 = mesh->vertices[tri[2] * 3];
-            double y3 = mesh->vertices[tri[2] * 3 + 1];
-            double z3 = mesh->vertices[tri[2] * 3 + 2];
-
-            // Basic backface culling
-            if ((x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1) < 0) continue;
-
-            // Get texture coordinates and prepare for perspective correction
-            double u1 = mesh->texcoords[tex_tri[0] * 2];
-            double v1 = mesh->texcoords[tex_tri[0] * 2 + 1];
-            double u2 = mesh->texcoords[tex_tri[1] * 2];
-            double v2 = mesh->texcoords[tex_tri[1] * 2 + 1];
-            double u3 = mesh->texcoords[tex_tri[2] * 2];
-            double v3 = mesh->texcoords[tex_tri[2] * 2 + 1];
-
-            // Prepare perspective-correct values
-            // We multiply texture coordinates by 1/z for perspective correction
-            double w1 = 1.0 / (z1 + 1e-8); // Add small epsilon to prevent division by zero
-            double w2 = 1.0 / (z2 + 1e-8);
-            double w3 = 1.0 / (z3 + 1e-8);
-
-            double u1_p = u1 * w1;
-            double v1_p = v1 * w1;
-            double u2_p = u2 * w2;
-            double v2_p = v2 * w2;
-            double u3_p = u3 * w3;
-            double v3_p = v3 * w3;
+            double u1 = mesh->texcoords[t1_idx * 2];
+            double v1 = mesh->texcoords[t1_idx * 2 + 1];
+            
+            double u2 = mesh->texcoords[t2_idx * 2];
+            double v2 = mesh->texcoords[t2_idx * 2 + 1];
 
             // Calculate bounding box
-            int minX = (int)fmax(0, fmin(fmin(x1, x2), x3));
-            int maxX = (int)fmin(WIDTH - 1, fmax(fmax(x1, x2), x3));
-            int minY = (int)fmax(0, fmin(fmin(y1, y2), y3));
-            int maxY = (int)fmin(HEIGHT - 1, fmax(fmax(y1, y2), y3));
+            int min_x = (int)fmax(0, fmin(fmin(x0, x1), x2));
+            int max_x = (int)fmin(WIDTH - 1, fmax(fmax(x0, x1), x2));
+            int min_y = (int)fmax(0, fmin(fmin(y0, y1), y2));
+            int max_y = (int)fmin(HEIGHT - 1, fmax(fmax(y0, y1), y2));
+
+            // Triangle area
+            double area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+            if (fabs(area) < 1e-8) continue;  // Skip degenerate triangles
 
             // Rasterize triangle
-            for (int y = minY; y <= maxY; y++) {
-                for (int x = minX; x <= maxX; x++) {
-                    // Calculate barycentric coordinates
-                    double denominator = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3);
-                    if (fabs(denominator) < 1e-8) continue;
-
-                    double w1_b = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / denominator;
-                    double w2_b = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / denominator;
-                    double w3_b = 1.0 - w1_b - w2_b;
+            for (int y = min_y; y <= max_y; y++) {
+                for (int x = min_x; x <= max_x; x++) {
+                    // Barycentric coordinates
+                    double w0 = ((x1 - x) * (y2 - y) - (x2 - x) * (y1 - y)) / area;
+                    double w1 = ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y)) / area;
+                    double w2 = 1.0 - w0 - w1;
 
                     // Check if point is inside triangle
-                    if (w1_b >= 0 && w2_b >= 0 && w3_b >= 0) {
-                        // Interpolate Z
-                        double z = w1_b * z1 + w2_b * z2 + w3_b * z3;
+                    if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+                        // Interpolate z
+                        double z = w0 * z0 + w1 * z1 + w2 * z2;
                         
-                        // Depth test
-                        if (z < depth_buffer[y * WIDTH + x]) {
-                            depth_buffer[y * WIDTH + x] = z;
+                        // Z-buffer test
+                        int pixel_idx = y * WIDTH + x;
+                        if (z < z_buffer[pixel_idx]) {
+                            z_buffer[pixel_idx] = z;
 
-                            // Perspective-correct texture coordinate interpolation
-                            double w = 1.0 / (w1_b * w1 + w2_b * w2 + w3_b * w3);
-                            double u = (w1_b * u1_p + w2_b * u2_p + w3_b * u3_p) * w;
-                            double v = (w1_b * v1_p + w2_b * v2_p + w3_b * v3_p) * w;
+                            // Interpolate texture coordinates
+                            double u = w0 * u0 + w1 * u1 + w2 * u2;
+                            double v = w0 * v0 + w1 * v1 + w2 * v2;
 
                             // Sample texture
                             int tx = (int)(u * (mesh->texture_dims[0] - 1));
@@ -271,12 +265,12 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
                             ty = fmax(0, fmin(ty, mesh->texture_dims[1] - 1));
 
                             int texel_idx = (ty * mesh->texture_dims[0] + tx) * 3;
-                            int pixel_idx = (y * WIDTH + x) * 3;
+                            int pixel_offset = (y * WIDTH + x) * 3;
 
-                            // Write pixel
-                            image[pixel_idx] = mesh->texture_data[texel_idx];
-                            image[pixel_idx + 1] = mesh->texture_data[texel_idx + 1];
-                            image[pixel_idx + 2] = mesh->texture_data[texel_idx + 2];
+                            // Write pixel color
+                            image[pixel_offset] = mesh->texture_data[texel_idx];
+                            image[pixel_offset + 1] = mesh->texture_data[texel_idx + 1];
+                            image[pixel_offset + 2] = mesh->texture_data[texel_idx + 2];
                         }
                     }
                 }
@@ -284,7 +278,7 @@ void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
         }
     }
 
-    free(depth_buffer);
+    free(z_buffer);
 }
 
 int main() {
