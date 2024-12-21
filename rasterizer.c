@@ -96,7 +96,7 @@ Mesh* create_mesh(const char* obj_file, const char* texture_file) {
     return mesh;
 }
 
-void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], double camera_up[3]) {
+void vertex_shader(Mesh* mesh, double camera_pos[3], double camera_target[3], double camera_up[3]) {
     // Calculate view matrix
     double forward[3] = {
         camera_target[0] - camera_pos[0],
@@ -178,7 +178,7 @@ void update_vertices(Mesh* mesh, double camera_pos[3], double camera_target[3], 
     }
 }
 
-void render_scene(uint8_t *image, Mesh **meshes, int num_meshes) {
+void rasterize(uint8_t *image, Mesh **meshes, int num_meshes) {
     // Create and initialize z-buffer
     double *z_buffer = malloc(WIDTH * HEIGHT * sizeof(double));
     for (int i = 0; i < WIDTH * HEIGHT; i++) {
@@ -296,10 +296,10 @@ int main() {
         transform_mesh(meshes[1], ground_pos, 1.0, 0.0);
 
         for (int i = 0; i < 2; i++) {
-            update_vertices(meshes[i], camera_pos, camera_target, camera_up);
+            vertex_shader(meshes[i], camera_pos, camera_target, camera_up);
         }
 
-        render_scene(frame_buffer, meshes, 2);
+        rasterize(frame_buffer, meshes, 2);
 
         // Flip the image vertically
         for (int y = 0; y < HEIGHT; y++) {
