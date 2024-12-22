@@ -182,11 +182,24 @@ static void put_image(ge_GIF *gif, uint16_t w, uint16_t h, uint16_t x, uint16_t 
     del_trie(root, 1 << gif->depth);
 }
 
-void ge_add_frame(ge_GIF *gif, uint8_t *input, uint16_t delay) {
+void ge_add_frame(ge_GIF *gif, uint8_t *input, uint16_t delay) {    
+    uint8_t *flipped_buffer = calloc(gif->w * gif->h * 3, sizeof(uint8_t));
+
+    // Flip image vertically
+    for (int y = 0; y < gif->h; y++) {
+        for (int x = 0; x < gif->w; x++) {
+            int src_idx = (y * gif->w + x) * 3;
+            int dst_idx = ((gif->h - 1 - y) * gif->w + x) * 3;
+            flipped_buffer[dst_idx] = input[src_idx];
+            flipped_buffer[dst_idx + 1] = input[src_idx + 1];
+            flipped_buffer[dst_idx + 2] = input[src_idx + 2];
+        }
+    }
+
     for (int y = 0; y < gif->h; y++) {
         for (int x = 0; x < gif->w; x++) {
             int i = (y * gif->w + x) * 3;
-            int r = input[i], g = input[i + 1], b = input[i + 2];
+            int r = flipped_buffer[i], g = flipped_buffer[i + 1], b = flipped_buffer[i + 2];
             uint8_t best_color = 0;
             uint32_t min_dist = UINT32_MAX;
             
@@ -243,6 +256,8 @@ void ge_add_frame(ge_GIF *gif, uint8_t *input, uint16_t delay) {
         gif->back = gif->frame;
         gif->frame = tmp;
     }
+
+    free(flipped_buffer);
 }
 
 void ge_close_gif(ge_GIF* gif) {
