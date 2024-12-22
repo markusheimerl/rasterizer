@@ -1,3 +1,11 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <float.h>
+#include <stdint.h>
+#include "bmp.h"
+#include "obj.h"
+
 #define WIDTH 640
 #define HEIGHT 480
 #define FRAMES 120
