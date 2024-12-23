@@ -3,6 +3,8 @@
 #include "gif.h"
 #include "rasterizer.h"
 
+#define FRAMES 120
+
 int main() {
     // Initialize meshes
     Mesh* meshes[] = {

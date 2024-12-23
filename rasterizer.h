@@ -8,7 +8,6 @@
 
 #define WIDTH 640
 #define HEIGHT 480
-#define FRAMES 120
 #define ASPECT_RATIO ((double)WIDTH / (double)HEIGHT)
 #define FOV_Y 60.0
 #define NEAR_PLANE 0.1
