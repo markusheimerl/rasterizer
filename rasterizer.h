@@ -214,11 +214,11 @@ void rasterize(uint8_t *image, Mesh **meshes, int num_meshes) {
             int v1_idx = mesh->triangles[t * 3 + 1];
             int v2_idx = mesh->triangles[t * 3 + 2];
 
-            // Check if any vertex is behind the near plane
+            // Skip triangle if any vertex is behind near plane
             if (mesh->vertices[v0_idx * 3 + 2] > 1.0 ||
                 mesh->vertices[v1_idx * 3 + 2] > 1.0 ||
                 mesh->vertices[v2_idx * 3 + 2] > 1.0) {
-                continue;  // Skip triangle if any vertex is behind near plane
+                continue;
             }
 
             // Get texture coordinate indices
@@ -239,11 +239,6 @@ void rasterize(uint8_t *image, Mesh **meshes, int num_meshes) {
             double y2 = (mesh->vertices[v2_idx * 3 + 1] + 1.0) * HEIGHT * 0.5;
             double z2 = mesh->vertices[v2_idx * 3 + 2];
 
-            // Skip triangles that are too close to the camera
-            if (z0 < -0.1 || z1 < -0.1 || z2 < -0.1) {
-                continue;
-            }
-
             // Get texture coordinates
             double u0 = mesh->texcoords[t0_idx * 2];
             double v0 = mesh->texcoords[t0_idx * 2 + 1];
@@ -260,9 +255,7 @@ void rasterize(uint8_t *image, Mesh **meshes, int num_meshes) {
             int min_y = (int)fmax(0, fmin(fmin(y0, y1), y2));
             int max_y = (int)fmin(HEIGHT - 1, fmax(fmax(y0, y1), y2));
 
-            // Triangle area
             double area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
-            if (fabs(area) < 1e-8) continue;  // Skip tiny triangles
 
             for (int y = min_y; y <= max_y; y++) {
                 for (int x = min_x; x <= max_x; x++) {
